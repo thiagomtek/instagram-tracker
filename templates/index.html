@@ -1,0 +1,60 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="row justify-content-center align-items-center" style="min-height: 80vh;">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card text-center">
+            <h1 class="mb-2 brand-text">Instagram Hub</h1>
+            <p class="text-secondary mb-4">Análise completa: Mútuos, Pendentes, Bloqueados e mais.</p>
+
+            <form action="/upload" method="POST" enctype="multipart/form-data" id="uploadForm">
+                <div class="upload-zone mb-4" id="dropZone">
+                    <div class="mb-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </div>
+                    <h5>Arraste todos os arquivos HTML aqui</h5>
+                    <p class="text-muted small">Suporta: followers, following, pending, blocked, close_friends, etc.</p>
+                    <input type="file" name="files" multiple class="d-none" id="fileInput" required>
+                    <button type="button" class="btn btn-outline-light btn-sm mt-2" onclick="document.getElementById('fileInput').click()">Selecionar Arquivos</button>
+                </div>
+                
+                <div id="fileList" class="mb-3 text-start text-secondary small"></div>
+
+                <button type="submit" class="btn btn-insta w-100 py-3">
+                    Gerar Relatório Completo
+                </button>
+            </form>
+            
+            <form action="/reset" method="POST" onsubmit="return confirm('Tem certeza?');" class="mt-3">
+                <button class="btn btn-link text-muted btn-sm text-decoration-none">Limpar Dados</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        fileInput.files = e.dataTransfer.files;
+        updateFileList();
+    });
+    fileInput.addEventListener('change', updateFileList);
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+        if(fileInput.files.length > 0) {
+            fileList.innerHTML = '<strong>Arquivos prontos:</strong><br>';
+            Array.from(fileInput.files).forEach(file => {
+                fileList.innerHTML += `• ${file.name}<br>`;
+            });
+        }
+    }
+</script>
+{% endblock %}

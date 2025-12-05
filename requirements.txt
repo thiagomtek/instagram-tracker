@@ -1,0 +1,8 @@
+flask
+sqlalchemy
+flask_sqlalchemy
+pandas
+plotly
+python-dotenv
+beautifulsoup4
+pip install pandas

@@ -1,0 +1,198 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+
+{% macro render_user_item(username, text_class) %}
+<div class="list-item">
+    <a href="https://instagram.com/{{ username }}" target="_blank" class="d-flex align-items-center text-decoration-none user-link">
+        <div class="avatar-container me-3">
+            <div class="user-avatar placeholder-avatar" id="ph-{{ username }}" style="background-color: {{ username|avatar_color }}; color: #ffffff; text-shadow: 0 1px 3px rgba(0,0,0,0.6);">
+                {{ username|initials }}
+            </div>
+            <img class="user-avatar real-avatar" 
+                 src="https://unavatar.io/instagram/{{ username }}?fallback=false" 
+                 alt="{{ username }}"
+                 style="display: none; position: absolute; top: 0; left: 0;"
+                 onload="this.style.display='flex'; document.getElementById('ph-{{ username }}').style.opacity='0';"
+                 onerror="this.style.display='none';">
+        </div>
+        <span class="{{ text_class }} fw-bold" style="font-size: 1rem;">{{ username }}</span>
+    </a>
+</div>
+{% endmacro %}
+
+{% macro render_card(title, count, users_list, color_class, subtitle="") %}
+<div class="col-md-6 col-lg-4">
+    <div class="glass-card h-100" style="border-top: 4px solid var(--{{ color_class }});">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0 text-white">{{ title }}</h4>
+            <span class="badge bg-{{ color_class }} rounded-pill">{{ count }}</span>
+        </div>
+        {% if subtitle %} <p class="text-secondary small mb-2">{{ subtitle }}</p> {% endif %}
+        <div class="custom-list">
+            {% for user in users_list %}
+                {{ render_user_item(user, 'text-white') }}
+            {% else %}
+                <div class="text-center text-muted py-4">Nenhum usuário.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+<div class="row mb-4 animate-up">
+    <div class="col-12">
+        <div class="glass-card p-4">
+            <h4 class="text-white mb-3">🔍 Filtros de Análise</h4>
+            <form action="/dashboard" method="GET" class="row g-3 align-items-end">
+                
+                <div class="col-md-2">
+                    <label class="text-secondary small mb-1">De:</label>
+                    <input type="date" name="start_date" value="{{ filters.start }}" class="form-control form-dark">
+                </div>
+
+                <div class="col-md-2">
+                    <label class="text-secondary small mb-1">Até:</label>
+                    <input type="date" name="end_date" value="{{ filters.end }}" class="form-control form-dark">
+                </div>
+
+                <div class="col-md-3">
+                    <label class="text-secondary small mb-1">Usuário:</label>
+                    <input type="text" name="username" value="{{ filters.username }}" placeholder="Ex: anitta" class="form-control form-dark">
+                </div>
+
+                <div class="col-md-3">
+                    <label class="text-secondary small mb-1">Tipo de Evento:</label>
+                    <select name="action" class="form-select form-dark">
+                        <option value="all" {% if filters.action == 'all' %}selected{% endif %}>Todos os Eventos</option>
+                        <option value="gained" {% if filters.action == 'gained' %}selected{% endif %}>🟢 Novos (Ganhou)</option>
+                        <option value="lost" {% if filters.action == 'lost' %}selected{% endif %}>🔴 Saídas (Perdeu)</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary w-100 fw-bold">Filtrar</button>
+                    <a href="/dashboard" class="btn btn-outline-secondary" title="Limpar">X</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4 g-3">
+    <div class="col-md-4">
+        <div class="glass-card p-3 text-center border-info h-100">
+            <h2 class="fw-bold text-info">{{ kpis.followers_total }}</h2>
+            <p class="text-muted small mb-0">Total Seguidores Atuais</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="glass-card p-3 text-center border-success h-100">
+            <h2 class="fw-bold text-success">+{{ kpis.gained_filtered }}</h2>
+            <p class="text-muted small mb-0">Ganhos (Neste Filtro)</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="glass-card p-3 text-center border-danger h-100">
+            <h2 class="fw-bold text-danger">-{{ kpis.lost_filtered }}</h2>
+            <p class="text-muted small mb-0">Perdas (Neste Filtro)</p>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="glass-card p-0 overflow-hidden">
+            {{ graph_html|safe }}
+        </div>
+    </div>
+</div>
+
+<div class="row mb-5">
+    <div class="col-12">
+        <div class="glass-card">
+            <h4 class="text-white mb-3">📜 Registros Encontrados</h4>
+            <div class="custom-list" style="max-height: 500px;">
+                {% for log in history_logs %}
+                <div class="list-item py-2">
+                    <div class="d-flex align-items-center w-100">
+                        <div class="me-3" style="width: 30px; text-align: center;">
+                            {% if log.action == 'gained' %}
+                                <span style="color: #00e676; font-size: 1.2rem;">●</span>
+                            {% else %}
+                                <span style="color: #ff1744; font-size: 1.2rem;">●</span>
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-bold text-white">{{ log.username }}</span>
+                                    <span class="text-secondary mx-2" style="font-size: 0.8rem;">
+                                        {% if log.kind == 'followers' %}
+                                            {{ 'Te seguiu' if log.action == 'gained' else 'Deixou de te seguir' }}
+                                        {% else %}
+                                            {{ 'Você seguiu' if log.action == 'gained' else 'Você deu unfollow' }}
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <span class="badge bg-dark border border-secondary text-white">
+                                    {{ log.date_added|format_date }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="ms-3">
+                             <a href="https://instagram.com/{{ log.username }}" target="_blank" class="btn btn-sm btn-outline-light py-0" style="font-size: 0.7rem;">Ver</a>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                    <div class="text-center text-muted py-5">Nenhum registro encontrado com esses filtros.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<h3 class="text-white mb-3">🎯 Raio-X Atual</h3>
+<div class="row g-4">
+    {{ render_card('Não Seguem de Volta', not_following_back|length, not_following_back, 'danger', 'Você segue, eles não.') }}
+    {{ render_card('Seguidores Mútuos', mutuals|length, mutuals, 'success', 'Amizade recíproca.') }}
+    {{ render_card('Seus Fãs', fans|length, fans, 'warning', 'Te seguem, você não segue.') }}
+</div>
+
+<style>
+
+    .form-dark {
+        background-color: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: white !important;
+    }
+    .form-dark:focus {
+        background-color: rgba(255,255,255,0.1) !important;
+        border-color: var(--primary) !important;
+        box-shadow: none !important;
+    }
+
+    .avatar-container { width: 36px; height: 36px; position: relative; flex-shrink: 0; }
+    .user-avatar { 
+        width: 100%; height: 100%; 
+        border-radius: 50%; 
+        display: flex; align-items: center; justify-content: center; 
+        font-weight: bold; font-size: 13px; 
+        object-fit: cover;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    .placeholder-avatar { transition: opacity 0.3s; }
+    
+    :root {
+        --danger: #dc3545; --success: #198754; --warning: #ffc107;
+        --info: #0dcaf0; --primary: #0d6efd; --secondary: #6c757d;
+    }
+    .bg-danger { background-color: var(--danger) !important; }
+    .bg-success { background-color: var(--success) !important; }
+    .bg-warning { background-color: var(--warning) !important; color: #000; }
+    .bg-info { background-color: var(--info) !important; color: #000; }
+    .bg-primary { background-color: var(--primary) !important; }
+    .bg-secondary { background-color: var(--secondary) !important; }
+</style>
+{% endblock %}
