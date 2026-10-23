@@ -1,195 +1,181 @@
 {% extends 'layout.html' %}
 
+{% block title %}Painel · Instagram Tracker{% endblock %}
+
 {% block content %}
+{% macro user_list(users, empty_message) %}
+<div class="relationship-list">
+    {% for username in users %}
+    <a class="relationship-user" href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">
+        <span class="user-initial" style="--avatar-color: {{ username|avatar_color }}">{{ username|initials }}</span>
+        <span>{{ username }}</span>
+        <span class="external-mark" aria-hidden="true">↗</span>
+    </a>
+    {% else %}
+    <div class="list-empty">{{ empty_message }}</div>
+    {% endfor %}
+</div>
+{% endmacro %}
 
 <section class="page-heading dashboard-heading">
     <div>
-        <span class="eyebrow">Visão geral</span>
-        <h1>Seu painel</h1>
-        <p>Acompanhe mudanças e entenda melhor suas conexões.</p>
+        <span class="eyebrow">Retrato da última exportação</span>
+        <h1>Situação atual</h1>
+        <p>
+            {% if latest_run %}
+                Atualizado em {{ (latest_run.completed_at or latest_run.started_at)|local_datetime }}.
+            {% else %}
+                Importe os dados do Instagram para montar seu primeiro retrato.
+            {% endif %}
+        </p>
     </div>
-    <a href="{{ url_for('index') }}" class="btn btn-soft">Atualizar dados</a>
+    <a href="{{ url_for('index') }}" class="btn btn-soft">Atualizar dados <span aria-hidden="true">→</span></a>
 </section>
 
-{% macro render_user_item(username, text_class) %}
-<div class="list-item">
-    <a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer" class="d-flex align-items-center text-decoration-none user-link">
-        <div class="avatar-container me-3">
-            <div class="user-avatar placeholder-avatar" id="ph-{{ username }}" style="background-color: {{ username|avatar_color }}; color: #ffffff; text-shadow: 0 1px 3px rgba(0,0,0,0.6);">
-                {{ username|initials }}
-            </div>
-            <img class="user-avatar real-avatar" 
-                 src="https://unavatar.io/instagram/{{ username }}?fallback=false" 
-                 alt="{{ username }}"
-                 style="display: none; position: absolute; top: 0; left: 0;"
-                 onload="this.style.display='flex'; document.getElementById('ph-{{ username }}').style.opacity='0';"
-                 onerror="this.style.display='none';">
-        </div>
-        <span class="{{ text_class }} fw-bold" style="font-size: 1rem;">{{ username }}</span>
-    </a>
+<div class="snapshot-note" role="note">
+    <span class="snapshot-note-icon" aria-hidden="true">✓</span>
+    <div>
+        <strong>As listas abaixo mostram o estado atual, não todo o seu histórico.</strong>
+        <p>Mesmo que o arquivo traga datas antigas, só entram aqui os perfis presentes na exportação mais recente. Uma nova importação substitui o retrato anterior.</p>
+    </div>
 </div>
-{% endmacro %}
 
-{% macro render_card(title, count, users_list, color_class, subtitle="") %}
-<div class="col-md-6 col-lg-4">
-    <div class="glass-card h-100" style="border-top: 4px solid var(--{{ color_class }});">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0 text-white">{{ title }}</h4>
-            <span class="badge bg-{{ color_class }} rounded-pill">{{ count }}</span>
+<section class="kpi-grid" aria-label="Resumo atual">
+    <article class="metric-card">
+        <span class="metric-label">Seguidores</span>
+        <strong>{{ kpis.followers_total }}</strong>
+        <small>seguem você agora</small>
+    </article>
+    <article class="metric-card">
+        <span class="metric-label">Seguindo</span>
+        <strong>{{ kpis.following_total }}</strong>
+        <small>você segue agora</small>
+    </article>
+    <article class="metric-card positive">
+        <span class="metric-label">Mútuos</span>
+        <strong>{{ kpis.mutuals_total }}</strong>
+        <small>seguem um ao outro</small>
+    </article>
+    <article class="metric-card attention">
+        <span class="metric-label">Sem retorno</span>
+        <strong>{{ kpis.not_following_back_total }}</strong>
+        <small>você segue, mas não seguem você</small>
+    </article>
+</section>
+
+<section class="relationship-grid" aria-labelledby="relationships-title">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Comparação atual</span>
+            <h2 id="relationships-title">Quem está em cada lista</h2>
         </div>
-        {% if subtitle %} <p class="text-secondary small mb-2">{{ subtitle }}</p> {% endif %}
-        <div class="custom-list">
-            {% for user in users_list %}
-                {{ render_user_item(user, 'text-white') }}
+        <span class="section-hint">Toque em uma categoria para abrir</span>
+    </div>
+
+    <details class="relationship-card attention" open>
+        <summary>
+            <span><strong>Você segue, mas não seguem você</strong><small>Está em “seguindo”, mas não em “seguidores”.</small></span>
+            <span class="count-pill">{{ not_following_back|length }}</span>
+        </summary>
+        {{ user_list(not_following_back, 'Ninguém nesta categoria. Ótimo!') }}
+    </details>
+
+    <details class="relationship-card positive">
+        <summary>
+            <span><strong>Vocês se seguem</strong><small>Está nas duas listas da exportação.</small></span>
+            <span class="count-pill">{{ mutuals|length }}</span>
+        </summary>
+        {{ user_list(mutuals, 'Nenhum perfil mútuo encontrado.') }}
+    </details>
+
+    <details class="relationship-card">
+        <summary>
+            <span><strong>Seguem você, mas você não segue</strong><small>Está em “seguidores”, mas não em “seguindo”.</small></span>
+            <span class="count-pill">{{ fans|length }}</span>
+        </summary>
+        {{ user_list(fans, 'Ninguém nesta categoria.') }}
+    </details>
+</section>
+
+<section class="activity-section" aria-labelledby="activity-title">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Mudanças entre importações</span>
+            <h2 id="activity-title">Atividade observada</h2>
+            <p>Entradas e saídas só contam depois que uma primeira importação define a base.</p>
+        </div>
+    </div>
+
+    <form action="{{ url_for('dashboard') }}" method="GET" class="filter-panel">
+        <div class="filter-field filter-kind">
+            <label for="kind">Quero analisar</label>
+            <select id="kind" name="kind" class="form-select form-dark">
+                <option value="followers" {% if filters.kind == 'followers' %}selected{% endif %}>Quem me segue</option>
+                <option value="following" {% if filters.kind == 'following' %}selected{% endif %}>Quem eu sigo</option>
+            </select>
+        </div>
+        <div class="filter-field">
+            <label for="start-date">De</label>
+            <input id="start-date" type="date" name="start_date" value="{{ filters.start or '' }}" class="form-control form-dark">
+        </div>
+        <div class="filter-field">
+            <label for="end-date">Até</label>
+            <input id="end-date" type="date" name="end_date" value="{{ filters.end or '' }}" class="form-control form-dark">
+        </div>
+        <div class="filter-field filter-user">
+            <label for="username">Perfil</label>
+            <input id="username" type="search" name="username" value="{{ filters.username }}" placeholder="Buscar usuário" class="form-control form-dark">
+        </div>
+        <div class="filter-field">
+            <label for="action">Mudança</label>
+            <select id="action" name="action" class="form-select form-dark">
+                <option value="all" {% if filters.action == 'all' %}selected{% endif %}>Entradas e saídas</option>
+                <option value="gained" {% if filters.action == 'gained' %}selected{% endif %}>Só entradas</option>
+                <option value="lost" {% if filters.action == 'lost' %}selected{% endif %}>Só saídas</option>
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-insta">Aplicar</button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-soft">Limpar</a>
+        </div>
+    </form>
+
+    <div class="activity-summary" aria-label="Resultado dos filtros">
+        <div><span class="activity-dot gained"></span><strong>+{{ kpis.gained_filtered }}</strong><small>entradas</small></div>
+        <div><span class="activity-dot lost"></span><strong>-{{ kpis.lost_filtered }}</strong><small>saídas</small></div>
+        <div class="net"><strong>{{ '+' if kpis.net_filtered > 0 else '' }}{{ kpis.net_filtered }}</strong><small>saldo no período</small></div>
+    </div>
+
+    <div class="glass-card chart-card">
+        {{ graph_html|safe }}
+    </div>
+
+    <div class="glass-card activity-card">
+        <div class="card-heading-inline">
+            <div><span class="eyebrow">Detalhes</span><h3>Perfis encontrados</h3></div>
+            <span>{{ history_logs|length }} registro{{ '' if history_logs|length == 1 else 's' }}</span>
+        </div>
+        <div class="activity-list">
+            {% for log in history_logs %}
+            <a class="activity-row" href="https://instagram.com/{{ log.username }}" target="_blank" rel="noopener noreferrer">
+                <span class="activity-icon {{ log.action }}" aria-hidden="true">{{ '+' if log.action == 'gained' else '−' }}</span>
+                <span class="activity-copy">
+                    <strong>{{ log.username }}</strong>
+                    <small>
+                        {% if log.kind == 'followers' %}
+                            {{ 'começou a seguir você' if log.action == 'gained' else 'deixou de seguir você' }}
+                        {% else %}
+                            {{ 'você começou a seguir' if log.action == 'gained' else 'você deixou de seguir' }}
+                        {% endif %}
+                    </small>
+                </span>
+                <time datetime="{{ log.date_added.isoformat() }}">{{ log.date_added|format_date }}</time>
+                <span class="external-mark" aria-hidden="true">↗</span>
+            </a>
             {% else %}
-                <div class="text-center text-muted py-4">Nenhum usuário.</div>
+            <div class="chart-empty compact"><strong>Nenhum perfil encontrado</strong><span>Tente ampliar o período ou limpar os filtros.</span></div>
             {% endfor %}
         </div>
     </div>
-</div>
-{% endmacro %}
-
-<div class="row mb-4 animate-up">
-    <div class="col-12">
-        <div class="glass-card p-4">
-            <h4 class="text-white mb-3">Filtros de análise</h4>
-            <form action="/dashboard" method="GET" class="row g-3 align-items-end">
-                
-                <div class="col-6 col-md-2">
-                    <label class="text-secondary small mb-1">De:</label>
-                    <input type="date" name="start_date" value="{{ filters.start }}" class="form-control form-dark">
-                </div>
-
-                <div class="col-6 col-md-2">
-                    <label class="text-secondary small mb-1">Até:</label>
-                    <input type="date" name="end_date" value="{{ filters.end }}" class="form-control form-dark">
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label class="text-secondary small mb-1">Usuário:</label>
-                    <input type="text" name="username" value="{{ filters.username }}" placeholder="Ex: anitta" class="form-control form-dark">
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label class="text-secondary small mb-1">Tipo de Evento:</label>
-                    <select name="action" class="form-select form-dark">
-                        <option value="all" {% if filters.action == 'all' %}selected{% endif %}>Todos os Eventos</option>
-                        <option value="gained" {% if filters.action == 'gained' %}selected{% endif %}>🟢 Novos (Ganhou)</option>
-                        <option value="lost" {% if filters.action == 'lost' %}selected{% endif %}>🔴 Saídas (Perdeu)</option>
-                    </select>
-                </div>
-
-                <div class="col-12 col-md-2 d-flex gap-2 dashboard-filter-actions">
-                    <button type="submit" class="btn btn-primary w-100 fw-bold">Filtrar</button>
-                    <a href="/dashboard" class="btn btn-outline-secondary" title="Limpar">X</a>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<div class="row mb-4 g-3">
-    <div class="col-md-4">
-        <div class="glass-card p-3 text-center border-info h-100">
-            <h2 class="fw-bold text-info">{{ kpis.followers_total }}</h2>
-            <p class="text-muted small mb-0">Total Seguidores Atuais</p>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="glass-card p-3 text-center border-success h-100">
-            <h2 class="fw-bold text-success">+{{ kpis.gained_filtered }}</h2>
-            <p class="text-muted small mb-0">Ganhos (Neste Filtro)</p>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="glass-card p-3 text-center border-danger h-100">
-            <h2 class="fw-bold text-danger">-{{ kpis.lost_filtered }}</h2>
-            <p class="text-muted small mb-0">Perdas (Neste Filtro)</p>
-        </div>
-    </div>
-</div>
-
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="glass-card p-0 overflow-hidden">
-            {{ graph_html|safe }}
-        </div>
-    </div>
-</div>
-
-<div class="row mb-5">
-    <div class="col-12">
-        <div class="glass-card">
-            <h4 class="text-white mb-3">📜 Registros Encontrados</h4>
-            <div class="custom-list" style="max-height: 500px;">
-                {% for log in history_logs %}
-                <div class="list-item py-2 history-item">
-                    <div class="d-flex align-items-center w-100 history-row">
-                        <div class="history-dot">
-                            {% if log.action == 'gained' %}
-                                <span style="color: #00e676; font-size: 1.2rem;">●</span>
-                            {% else %}
-                                <span style="color: #ff1744; font-size: 1.2rem;">●</span>
-                            {% endif %}
-                        </div>
-                        <div class="history-profile-link">
-                             <a href="https://instagram.com/{{ log.username }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-light py-0" style="font-size: 0.7rem;">Ver</a>
-                        </div>
-                        <div class="flex-grow-1 history-content">
-                            <div class="d-flex justify-content-between align-items-center history-main">
-                                <div class="history-description">
-                                    <span class="fw-bold text-white">{{ log.username }}</span>
-                                    <span class="text-secondary mx-2" style="font-size: 0.8rem;">
-                                        {% if log.kind == 'followers' %}
-                                            {{ 'Te seguiu' if log.action == 'gained' else 'Deixou de te seguir' }}
-                                        {% else %}
-                                            {{ 'Você seguiu' if log.action == 'gained' else 'Você deu unfollow' }}
-                                        {% endif %}
-                                    </span>
-                                </div>
-                                <span class="badge bg-dark border border-secondary text-white history-date">
-                                    {{ log.date_added|format_date }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% else %}
-                    <div class="text-center text-muted py-5">Nenhum registro encontrado com esses filtros.</div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-</div>
-
-<h3 class="text-white mb-3">Raio-X atual</h3>
-<div class="row g-4">
-    {{ render_card('Não Seguem de Volta', not_following_back|length, not_following_back, 'danger', 'Você segue, eles não.') }}
-    {{ render_card('Seguidores Mútuos', mutuals|length, mutuals, 'success', 'Amizade recíproca.') }}
-    {{ render_card('Seus Fãs', fans|length, fans, 'warning', 'Te seguem, você não segue.') }}
-</div>
-
-<style>
-    .avatar-container { width: 36px; height: 36px; position: relative; flex-shrink: 0; }
-    .user-avatar { 
-        width: 100%; height: 100%; 
-        border-radius: 50%; 
-        display: flex; align-items: center; justify-content: center; 
-        font-weight: bold; font-size: 13px; 
-        object-fit: cover;
-        border: 1px solid rgba(255,255,255,0.2);
-    }
-    .placeholder-avatar { transition: opacity 0.3s; }
-    
-    :root {
-        --danger: #dc3545; --success: #198754; --warning: #ffc107;
-        --info: #0dcaf0; --primary: #0d6efd; --secondary: #6c757d;
-    }
-    .bg-danger { background-color: var(--danger) !important; }
-    .bg-success { background-color: var(--success) !important; }
-    .bg-warning { background-color: var(--warning) !important; color: #000; }
-    .bg-info { background-color: var(--info) !important; color: #000; }
-    .bg-primary { background-color: var(--primary) !important; }
-    .bg-secondary { background-color: var(--secondary) !important; }
-</style>
+</section>
 {% endblock %}

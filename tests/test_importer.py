@@ -87,6 +87,35 @@ class ImporterTest(unittest.TestCase):
             ["ana"],
         )
 
+    def test_all_time_export_replaces_snapshot_even_with_old_relationship_dates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            initial = root / "followers_1.html"
+            initial.write_text(relationship_html(["ana", "perfil_antigo"]), encoding="utf-8")
+            process_import_paths([initial], self.user_id)
+
+            # Both exports carry an old relationship date. The missing username
+            # must still be removed because the file is a current snapshot.
+            current = root / "followers_current.html"
+            current.write_text(relationship_html(["ana"]), encoding="utf-8")
+            summary = process_import_paths([current], self.user_id)
+
+        self.assertEqual(summary.followers_lost, 1)
+        self.assertEqual(
+            {item.username for item in Follower.query.filter_by(user_id=self.user_id, kind="followers")},
+            {"ana"},
+        )
+
+    def test_first_snapshot_is_a_baseline_not_a_gain_event(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "followers_1.html"
+            path.write_text(relationship_html(["ana", "bia"]), encoding="utf-8")
+            summary = process_import_paths([path], self.user_id)
+
+        self.assertEqual(summary.followers_found, 2)
+        self.assertEqual(summary.followers_gained, 0)
+        self.assertEqual(History.query.filter_by(user_id=self.user_id).count(), 0)
+
     def test_reads_instagram_json_structure(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "following.json"

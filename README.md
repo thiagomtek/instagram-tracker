@@ -23,14 +23,12 @@ Diferente de aplicativos de terceiros que exigem sua senha e arriscam o bloqueio
     * **Traidores:** Quem você segue, mas não te segue de volta.
     * **Fãs:** Quem te segue, mas você não segue.
     * **Mútuos:** Amigos que se seguem mutuamente.
-* **🧠 Inteligência Temporal (Smart History):**
-    * Lê as datas originais dos arquivos do Instagram para reconstruir o histórico fiel (ex: sabe que você seguiu alguém em 2019, mesmo importando o arquivo hoje).
-    * **Smart Merge:** Permite upload de arquivos parciais (ex: apenas dados do último mês) sem apagar o histórico antigo do banco de dados.
-* **📉 Linha do Tempo Detalhada:** Veja dia a dia quem começou a seguir ou deixou de seguir.
-* **📊 Gráficos Interativos:** Visualização de fluxo (Ganhos vs Perdas) com Plotly.
+* **📸 Retrato atual correto:** Cada arquivo de seguidores/seguindo substitui a lista anterior daquele tipo. As datas históricas do Instagram não são confundidas com a situação atual.
+* **📉 Mudanças entre importações:** A primeira importação cria a base; as seguintes registram quem entrou e saiu no momento em que a mudança foi observada.
+* **📊 Gráfico interativo:** Entradas aparecem acima de zero e saídas abaixo, com filtros separados para “quem me segue” e “quem eu sigo”.
 * **🔍 Filtros Avançados:** Filtre o histórico por Nome de Usuário, Data ou Tipo de Evento.
 * **🎨 UI Moderna:** Interface "Glassmorphism" (efeito de vidro), modo escuro e responsiva.
-* **⚡ Performance:** Utiliza avatares gerados (iniciais) ou API pública (Unavatar) para evitar bloqueios de IP por scraping.
+* **⚡ Performance e privacidade:** Usa avatares locais com iniciais, sem buscar fotos de perfil em serviços externos.
 * **☁️ Google Drive:** Observa automaticamente onde o Instagram entrega as exportações e remove cada pasta após confirmar a análise.
 * **📲 PWA e Web Push:** Pode ser instalado no celular e avisa quando uma análise automática termina.
 * **🧹 Sem arquivos residuais:** Uploads, ZIPs e pastas baixadas são processados em diretórios temporários e removidos ao final.
@@ -184,7 +182,7 @@ Para alimentar o sistema, você precisa baixar seus dados oficiais:
 ## 🖥️ Como Usar
 
 1.  Na tela inicial do sistema, você verá uma área de **Upload**.
-2.  Arraste **TODOS** os arquivos HTML relevantes de uma vez para a caixa. O sistema suporta:
+2.  Arraste **TODOS** os arquivos HTML relevantes da exportação atual de uma vez para a caixa. Cada conjunto importado é tratado como o retrato atual daquele tipo. O sistema suporta:
     * `followers_1.html` (e outros números)
     * `following.html`
     * `pending_follow_requests.html`

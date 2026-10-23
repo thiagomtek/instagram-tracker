@@ -1,4 +1,4 @@
-const CACHE_NAME = 'instagram-tracker-shell-v1';
+const CACHE_NAME = 'instagram-tracker-shell-v2';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const OFFLINE_URL = `${APP_ROOT}offline`;
 

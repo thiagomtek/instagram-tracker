@@ -80,7 +80,7 @@
             <div class="section-icon" aria-hidden="true">⇧</div>
             <div><span class="eyebrow">Sempre disponível</span><h2>Importação manual</h2></div>
         </div>
-        <p class="section-copy">Envie HTML, JSON ou o ZIP completo da Central de Contas. Os arquivos são apagados assim que a análise termina.</p>
+        <p class="section-copy">Envie o ZIP completo ou todos os HTML/JSON da exportação atual. A nova lista substitui o retrato anterior e os arquivos são apagados após a análise.</p>
         <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="upload-zone" id="dropZone" for="fileInput">

@@ -115,14 +115,13 @@ def process_import_paths(paths, user_id):
 
         summary = ImportSummary(files_read=len(files))
         for kind in ("followers", "following"):
-            items = _deduplicate(grouped.get(kind, []))
-            if not items:
+            if kind not in grouped:
                 continue
+            items = _deduplicate(grouped.get(kind, []))
             gained_names, lost_names = save_followers(kind, items, user_id, commit=False)
             for username in gained_names:
-                item_date = next(item["date"] for item in items if item["username"] == username)
                 db.session.add(
-                    History(user_id=user_id, username=username, action="gained", kind=kind, date_added=item_date)
+                    History(user_id=user_id, username=username, action="gained", kind=kind, date_added=datetime.now())
                 )
             for username in lost_names:
                 db.session.add(

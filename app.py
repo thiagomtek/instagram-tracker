@@ -31,8 +31,6 @@ from services.analysis_runs import complete_analysis_run, fail_analysis_run, sta
 from services.token_crypto import decrypt_token, encrypt_token
 import os
 import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -54,13 +52,11 @@ def ensure_ownership_columns():
         db.session.execute(db.text(f"CREATE INDEX IF NOT EXISTS ix_{table_name}_user_id ON {table_name} (user_id)"))
     db.session.commit()
 
-
 def assign_orphaned_data(user_id):
     """Claims legacy data only when the database receives its first account."""
     History.query.filter(History.user_id.is_(None)).update({History.user_id: user_id})
     Follower.query.filter(Follower.user_id.is_(None)).update({Follower.user_id: user_id})
     db.session.commit()
-
 
 with app.app_context():
     db.create_all()
@@ -72,10 +68,8 @@ with app.app_context():
         db.session.commit()
         assign_orphaned_data(initial_user.id)
 
-
 def is_valid_email(email):
     return len(email) <= 255 and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) is not None
-
 
 def validate_password(password, confirmation):
     if len(password) < 12:
@@ -83,7 +77,6 @@ def validate_password(password, confirmation):
     if password != confirmation:
         return "As senhas não coincidem."
     return None
-
 
 @app.context_processor
 def inject_csrf_token():
@@ -94,7 +87,6 @@ def inject_csrf_token():
         "push_public_key": app.config["PUSH_VAPID_PUBLIC_KEY"],
     }
 
-
 @app.before_request
 def verify_csrf_token():
     if request.method == "POST":
@@ -102,7 +94,6 @@ def verify_csrf_token():
         expected_token = session.get("csrf_token", "")
         if not expected_token or not hmac.compare_digest(submitted_token, expected_token):
             return "Solicitação inválida. Atualize a página e tente novamente.", 400
-
 
 def login_required(view):
     @wraps(view)
@@ -134,7 +125,6 @@ def format_date(value):
     if value is None: return ""
     return value.strftime('%d/%m/%Y %H:%M')
 
-
 @app.template_filter("local_datetime")
 def format_local_datetime(value):
     if value is None:
@@ -142,7 +132,6 @@ def format_local_datetime(value):
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(ZoneInfo(app.config["APP_TIMEZONE"])).strftime("%d/%m/%Y %H:%M")
-
 
 @app.template_filter("duration")
 def format_duration(run):
@@ -164,7 +153,6 @@ def index():
         google_configured=google_drive_is_configured(),
         push_configured=bool(app.config["PUSH_VAPID_PUBLIC_KEY"]),
     )
-
 
 @app.route("/manifest.webmanifest")
 def web_manifest():
@@ -195,11 +183,9 @@ def web_manifest():
     response.headers["Cache-Control"] = "no-cache"
     return response
 
-
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
-
 
 @app.route("/service-worker.js")
 def service_worker():
@@ -209,17 +195,14 @@ def service_worker():
     response.headers["Cache-Control"] = "no-cache"
     return response
 
-
 @app.route("/offline")
 def offline():
     return render_template("offline.html")
-
 
 @app.errorhandler(413)
 def upload_too_large(_error):
     flash("O upload excede o limite configurado no servidor.", "error")
     return redirect(url_for("index"))
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -240,7 +223,6 @@ def login():
         flash("E-mail ou senha inválidos.", "error")
 
     return render_template("login.html")
-
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -276,7 +258,6 @@ def register():
             return redirect(url_for("index"))
 
     return render_template("register.html")
-
 
 @app.route("/logout", methods=["POST"])
 @login_required
@@ -317,7 +298,6 @@ def upload():
         flash("A análise falhou. Consulte o histórico de processamentos para ver o erro.", "error")
         return redirect(url_for("processing_history"))
 
-
 def _google_client_config():
     return {
         "web": {
@@ -328,10 +308,8 @@ def _google_client_config():
         }
     }
 
-
 def _google_redirect_uri():
     return app.config["GOOGLE_REDIRECT_URI"] or url_for("google_drive_callback", _external=True)
-
 
 @app.route("/integrations/google/connect")
 @login_required
@@ -349,7 +327,6 @@ def google_drive_connect():
     if getattr(flow, "code_verifier", None):
         session["google_oauth_code_verifier"] = flow.code_verifier
     return redirect(authorization_url)
-
 
 @app.route("/integrations/google/callback")
 @login_required
@@ -397,12 +374,10 @@ def google_drive_callback():
         flash(f"Não foi possível vincular o Google Drive: {exc}", "error")
     return redirect(url_for("index"))
 
-
 def drive_service_from_credentials(credentials):
     from googleapiclient.discovery import build
 
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
-
 
 def _extract_drive_folder_id(value):
     value = value.strip()
@@ -414,7 +389,6 @@ def _extract_drive_folder_id(value):
     if re.fullmatch(r"[A-Za-z0-9_-]{10,}", value):
         return value
     raise ValueError("Cole o link completo da pasta ou informe um ID válido.")
-
 
 @app.route("/integrations/google/folder", methods=["POST"])
 @login_required
@@ -437,7 +411,6 @@ def google_drive_folder():
         flash(f"Não foi possível acessar essa pasta: {exc}", "error")
     return redirect(url_for("index"))
 
-
 @app.route("/integrations/google/sync", methods=["POST"])
 @login_required
 def google_drive_sync_now():
@@ -455,7 +428,6 @@ def google_drive_sync_now():
         flash("A pasta está em dia; nenhuma exportação nova foi encontrada.", "success")
     return redirect(url_for("index"))
 
-
 @app.route("/integrations/google/disconnect", methods=["POST"])
 @login_required
 def google_drive_disconnect():
@@ -471,7 +443,6 @@ def google_drive_disconnect():
         db.session.commit()
     flash("Conta do Google Drive desvinculada deste serviço.", "success")
     return redirect(url_for("index"))
-
 
 @app.route("/api/push/subscribe", methods=["POST"])
 @login_required
@@ -491,7 +462,6 @@ def push_subscribe():
     db.session.commit()
     return jsonify({"ok": True})
 
-
 @app.route("/api/push/unsubscribe", methods=["POST"])
 @login_required
 def push_unsubscribe():
@@ -509,15 +479,36 @@ def dashboard():
     start_date_str = request.args.get('start_date')
     end_date_str = request.args.get('end_date')
     username_filter = request.args.get('username', '').strip()
-    action_filter = request.args.get('action', 'all') # all, gained, lost
+    action_filter = request.args.get('action', 'all')
+    kind_filter = request.args.get('kind', 'followers')
 
-    if not start_date_str: start_date = datetime.now() - timedelta(days=365*5)
-    else: start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    if action_filter not in {'all', 'gained', 'lost'}:
+        action_filter = 'all'
+    if kind_filter not in {'followers', 'following'}:
+        kind_filter = 'followers'
 
-    if not end_date_str: end_date = datetime.now() + timedelta(days=1)
-    else: end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+    if not start_date_str:
+        start_date_str = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    except ValueError:
+        start_date_str = None
+        start_date = datetime.now() - timedelta(days=90)
 
-    query = History.query.filter(History.user_id == user_id, History.date_added >= start_date, History.date_added <= end_date)
+    if not end_date_str:
+        end_date_str = datetime.now().strftime('%Y-%m-%d')
+    try:
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+    except ValueError:
+        end_date_str = None
+        end_date = datetime.now() + timedelta(days=1)
+
+    query = History.query.filter(
+        History.user_id == user_id,
+        History.kind == kind_filter,
+        History.date_added >= start_date,
+        History.date_added < end_date,
+    )
 
     if username_filter:
         query = query.filter(History.username.ilike(f"%{username_filter}%"))
@@ -527,33 +518,49 @@ def dashboard():
 
     history_logs = query.order_by(History.date_added.desc()).all()
 
-
     current_followers = load_followers('followers', user_id)
     current_following = load_followers('following', user_id)
     not_following_back, fans, mutuals = cross_reference(current_followers, current_following)
 
-    graph_html = generate_intelligent_graph(history_logs)
+    graph_html = generate_activity_graph(history_logs, kind_filter)
+
+    latest_run = (
+        AnalysisRun.query.filter_by(user_id=user_id)
+        .filter(AnalysisRun.status.in_(("success", "cleanup_failed")))
+        .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.started_at.desc())
+        .first()
+    )
+
+    gained_filtered = sum(1 for item in history_logs if item.action == 'gained')
+    lost_filtered = sum(1 for item in history_logs if item.action == 'lost')
 
     kpis = {
         "followers_total": len(current_followers),
-        "gained_filtered": len([h for h in history_logs if h.action == 'gained']),
-        "lost_filtered": len([h for h in history_logs if h.action == 'lost'])
+        "following_total": len(current_following),
+        "mutuals_total": len(mutuals),
+        "not_following_back_total": len(not_following_back),
+        "gained_filtered": gained_filtered,
+        "lost_filtered": lost_filtered,
+        "net_filtered": gained_filtered - lost_filtered,
     }
 
-    return render_template("dashboard.html", 
+    return render_template("dashboard.html",
                            history_logs=history_logs,
                            not_following_back=not_following_back,
                            fans=fans,
                            mutuals=mutuals,
                            graph_html=graph_html,
                            kpis=kpis,
+
+                           latest_run=latest_run,
                            filters={
-                               'start': start_date_str, 
+                               'start': start_date_str,
                                'end': end_date_str,
                                'username': username_filter,
-                               'action': action_filter
-                           })
+                               'action': action_filter,
 
+                               'kind': kind_filter
+                           })
 
 @app.route("/processamentos")
 @login_required
@@ -573,53 +580,66 @@ def processing_history():
             run.lost_list = []
     return render_template("processing_history.html", pagination=pagination)
 
-def generate_intelligent_graph(history_logs):
-    if not history_logs: return "<div class='text-center text-muted p-5'>Sem dados para exibir</div>"
+def generate_activity_graph(history_logs, kind):
+    """Render a compact change chart for the selected relationship."""
+    if not history_logs:
+        return (
+            "<div class='chart-empty'><strong>Nenhuma mudança no período</strong>"
+            "<span>A primeira importação cria a base atual e não conta como ganho.</span></div>"
+        )
 
-    data = []
+    grouped = {}
     for log in history_logs:
+        day = log.date_added.strftime("%Y-%m-%d")
+        grouped.setdefault(day, {"gained": 0, "lost": 0})
+        grouped[day][log.action] += 1
 
-        tipo_legivel = "Ganhou" if log.action == 'gained' else "Perdeu"
-        cat_legivel = "Seguidores" if log.kind == 'followers' else "Seguindo"
-        
-        data.append({
-            "Data": log.date_added.strftime("%Y-%m-%d"),
-            "Ação": tipo_legivel,
-            "Categoria": cat_legivel,
-            "Qtd": 1
-        })
+    dates = sorted(grouped)
+    gained = [grouped[day]["gained"] for day in dates]
+    lost = [-grouped[day]["lost"] for day in dates]
+    subject = "seguidores" if kind == "followers" else "perfis seguidos"
 
-    df = pd.DataFrame(data)
-    if df.empty: return ""
-    
-
-    df_grouped = df.groupby(["Data", "Categoria", "Ação"]).size().reset_index(name="Qtd")
-
- 
-    color_map = {
-        "Ganhou": "#00e676", 
-        "Perdeu": "#ff1744"   
-    }
-
-    fig = px.bar(df_grouped, x="Data", y="Qtd", color="Ação", 
-                 facet_row="Categoria",
-                 barmode="group",
-                 color_discrete_map=color_map,
-                 title="Fluxo Temporal (Filtrado)")
-
-    fig.update_layout(
-        font=dict(family="Inter, sans-serif", size=12, color="#ffffff"), 
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(255,255,255,0.05)', 
-        height=420,
-        margin=dict(l=20, r=20, t=60, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    fig = go.Figure()
+    fig.add_bar(
+        name="Entradas",
+        x=dates,
+        y=gained,
+        marker_color="#35cf84",
+        hovertemplate="%{x}<br>+%{y} entradas<extra></extra>",
     )
-
-    fig.update_xaxes(showgrid=False, gridcolor='#444')
-    fig.update_yaxes(showgrid=True, gridcolor='#444', zeroline=True, zerolinecolor='#666')
-
-    return fig.to_html(full_html=False, config={'displayModeBar': False, 'responsive': True})
+    fig.add_bar(
+        name="Saídas",
+        x=dates,
+        y=lost,
+        marker_color="#ff5a6f",
+        customdata=[abs(value) for value in lost],
+        hovertemplate="%{x}<br>-%{customdata} saídas<extra></extra>",
+    )
+    fig.update_layout(
+        title={"text": f"Mudanças em {subject}", "x": 0, "xanchor": "left"},
+        barmode="relative",
+        font={"family": "Inter, sans-serif", "size": 12, "color": "#f7f7fa"},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=350,
+        margin={"l": 48, "r": 20, "t": 64, "b": 46},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+        hoverlabel={"bgcolor": "#202029", "bordercolor": "#454551", "font_color": "#ffffff"},
+    )
+    fig.update_xaxes(showgrid=False, tickformat="%d/%m")
+    fig.update_yaxes(
+        title="Entradas (+) / saídas (-)",
+        showgrid=True,
+        gridcolor="rgba(255,255,255,.08)",
+        zeroline=True,
+        zerolinecolor="rgba(255,255,255,.3)",
+        rangemode="tozero",
+    )
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": False, "responsive": True, "locale": "pt-BR"},
+    )
 
 @app.route("/reset", methods=["POST"])
 @login_required

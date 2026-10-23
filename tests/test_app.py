@@ -10,6 +10,7 @@ os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 from app import app
 from database import db
 from models.integration import AnalysisRun
+from models.follower import Follower
 from models.user import User
 
 
@@ -72,6 +73,25 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'manifest.webmanifest', response.data)
         self.assertIn(b'mobile-tab-bar', response.data)
+
+    def test_dashboard_explains_current_snapshot_and_clear_relationships(self):
+        db.session.add_all(
+            [
+                Follower(user_id=self.user_id, username="ana", kind="followers"),
+                Follower(user_id=self.user_id, username="ana", kind="following"),
+                Follower(user_id=self.user_id, username="bia", kind="following"),
+            ]
+        )
+        db.session.commit()
+        self.login()
+
+        response = self.client.get("/dashboard")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Situação atual".encode(), response.data)
+        self.assertIn("estado atual, não todo o seu histórico".encode(), response.data)
+        self.assertIn("Você segue, mas não seguem você".encode(), response.data)
+        self.assertIn(b"bia", response.data)
 
     def test_json_api_requires_csrf_header(self):
         self.login()
