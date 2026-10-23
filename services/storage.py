@@ -6,11 +6,14 @@ from services.profile_validation import cancel_relationship_validations
 
 
 def order_usernames_newest_first(usernames, dates_by_username):
-    """Order usernames by relationship date, using the name only as a tie-breaker."""
-    alphabetized = sorted(usernames, key=str.casefold)
+    """Sort unique usernames by event date descending, tie-breaking by username."""
+    epoch = datetime.fromtimestamp(0)
     return sorted(
-        alphabetized,
-        key=lambda username: dates_by_username.get(username.casefold()) or datetime.min,
+        set(usernames),
+        key=lambda username: (
+            dates_by_username.get(username.casefold()) or dates_by_username.get(username) or epoch,
+            username.casefold(),
+        ),
         reverse=True,
     )
 
@@ -32,6 +35,7 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
     gained = []
     missing = []
     reappeared = []
+    followed_again = []
 
     for key, item in incoming_by_key.items():
         existing = existing_by_key.get(key)
@@ -48,14 +52,18 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
                 gained.append(item["username"])
         else:
             if not existing.is_present:
-                reappeared.append(item["username"])
                 cancel_relationship_validations(existing, observed_at)
+                if existing.state == "removed":
+                    followed_again.append(item["username"])
+                else:
+                    reappeared.append(item["username"])
             existing.username = item["username"]
             existing.date_added = item["date"]
             existing.is_present = True
             existing.missing_since = None
             existing.state = "present"
             existing.missing_count = 0
+            existing.retest_count = 0
             existing.validation_status = "idle"
             existing.last_validation_result = None
 
@@ -67,6 +75,7 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
             follower.missing_since = observed_at
             follower.state = "pending"
             follower.missing_count = 1
+            follower.retest_count = 0
             follower.validation_status = "idle"
             missing.append(follower.username)
         else:
@@ -79,6 +88,7 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
         order_usernames_newest_first(gained, incoming_dates),
         order_usernames_newest_first(missing, existing_dates),
         order_usernames_newest_first(reappeared, incoming_dates),
+        order_usernames_newest_first(followed_again, incoming_dates),
     )
 
 def load_followers(kind, user_id):

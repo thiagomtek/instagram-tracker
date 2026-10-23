@@ -157,7 +157,7 @@ class ImporterTest(unittest.TestCase):
 
         self.assertEqual(load_followers("followers", self.user_id), ["base_recente", "base_antiga"])
 
-        gained, missing, reappeared = save_followers(
+        gained, missing, reappeared, followed_again = save_followers(
             "followers",
             [
                 {"username": "base_antiga", "date": now - timedelta(days=40)},
@@ -170,6 +170,54 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(gained, ["nova_recente", "nova_antiga"])
         self.assertEqual(missing, ["base_recente"])
         self.assertEqual(reappeared, [])
+        self.assertEqual(followed_again, [])
+
+    def test_followed_again_distinction_from_reappeared(self):
+        now = datetime.now()
+        # Case 1: Was pending (temporary absent), returns -> action = reappeared
+        f1 = Follower(user_id=self.user_id, kind="followers", username="user_pending", state="pending", is_present=False)
+        # Case 2: Was removed (confirmed lost), returns -> action = followed_again
+        f2 = Follower(user_id=self.user_id, kind="followers", username="user_removed", state="removed", is_present=False)
+        db.session.add_all([f1, f2])
+        db.session.commit()
+
+        gained, missing, reappeared, followed_again = save_followers(
+            "followers",
+            [
+                {"username": "user_pending", "date": now},
+                {"username": "user_removed", "date": now},
+            ],
+            self.user_id,
+        )
+        self.assertIn("user_pending", reappeared)
+        self.assertIn("user_removed", followed_again)
+
+    def test_cross_list_detection_resolves_without_scraping(self):
+        # User is active in following
+        db.session.add(Follower(
+            user_id=self.user_id, kind="following", username="active_friend", is_present=True, state="present"
+        ))
+        # User goes missing in followers with missing_count = 1
+        db.session.add(Follower(
+            user_id=self.user_id, kind="followers", username="active_friend", is_present=False, state="pending", missing_count=1, missing_since=datetime.now() - timedelta(days=2)
+        ))
+        db.session.commit()
+
+        # Import followers without active_friend (now missing_count reaches 2)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "followers_export.zip"
+            with ZipFile(archive, "w") as zf:
+                zf.writestr("connections/followers_and_following/followers_1.html", relationship_html(["other_user"]))
+
+            summary = process_import_paths([archive], self.user_id)
+
+        # Because active_friend is present in following, existence is proven cross-list without scraping
+        follower = Follower.query.filter_by(user_id=self.user_id, kind="followers", username="active_friend").first()
+        self.assertEqual(follower.state, "removed")
+        self.assertEqual(follower.last_validation_result, "relationship_removed")
+        self.assertEqual(summary.followers_lost, 1)
+        lost_history = History.query.filter_by(user_id=self.user_id, username="active_friend", action="lost").first()
+        self.assertIsNotNone(lost_history)
 
 
 if __name__ == "__main__":

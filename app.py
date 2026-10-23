@@ -109,6 +109,7 @@ def ensure_schema_columns():
         ("validation_status", "VARCHAR(32) NOT NULL DEFAULT 'idle'"),
         ("last_validation_result", "VARCHAR(32)"),
         ("last_validated_at", "DATETIME"),
+        ("retest_count", "INTEGER NOT NULL DEFAULT 0"),
     ]
     for col_name, col_type in follower_cols:
         if col_name not in follower_columns:
@@ -131,7 +132,9 @@ def ensure_schema_columns():
     run_columns = {column["name"] for column in inspector.get_columns("analysis_run")}
     run_cols = [
         ("followers_reappeared", "INTEGER NOT NULL DEFAULT 0"),
+        ("followers_followed_again", "INTEGER NOT NULL DEFAULT 0"),
         ("reappeared_usernames", "TEXT"),
+        ("followed_again_usernames", "TEXT"),
         ("followers_missing", "INTEGER NOT NULL DEFAULT 0"),
         ("validation_total", "INTEGER NOT NULL DEFAULT 0"),
         ("validation_completed", "INTEGER NOT NULL DEFAULT 0"),
@@ -933,6 +936,93 @@ def push_unsubscribe():
 
 
 
+def format_validation_attempt_time(dt):
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local_tz = ZoneInfo(app.config.get("APP_TIMEZONE", "America/Sao_Paulo"))
+    local_dt = dt.astimezone(local_tz)
+    now_local = datetime.now(timezone.utc).astimezone(local_tz)
+    if local_dt.date() == now_local.date():
+        return local_dt.strftime("%H:%M")
+    return local_dt.strftime("%d/%m %H:%M")
+
+
+def format_validation_item(item, max_attempts=3):
+    kind_label = "Seguidor" if item.kind == "followers" else "Seguindo"
+    status = item.status
+    outcome = item.outcome
+    attempts = item.attempts or 0
+    next_time_str = format_validation_attempt_time(item.next_attempt_at) if item.next_attempt_at else ""
+
+    badge_class = "badge-queued"
+    status_label = "Na fila"
+    sub_label = ""
+
+    if status == "running":
+        badge_class = "badge-running"
+        status_label = "Averiguando agora"
+        sub_label = f"Tentativa {attempts + 1} de {max_attempts}"
+    elif status == "retry":
+        badge_class = "badge-retry"
+        if outcome in ("unavailable_pending_retest", "inconclusive_pending_retest"):
+            status_label = "Reaveriguação agendada"
+            sub_label = f"Reteste 1/1 previsto às {next_time_str}" if next_time_str else "Reteste 1/1 agendado"
+        else:
+            status_label = "Nova tentativa agendada"
+            sub_label = f"Tentativa {min(attempts + 1, max_attempts)} de {max_attempts} prevista às {next_time_str}" if next_time_str else f"Tentativa {min(attempts + 1, max_attempts)} de {max_attempts}"
+    elif status == "queued":
+        badge_class = "badge-queued"
+        status_label = "Na fila"
+        if next_time_str:
+            sub_label = f"Prevista às {next_time_str}"
+        else:
+            sub_label = "Aguardando worker"
+    elif status == "completed":
+        badge_class = "badge-completed"
+        if outcome == "relationship_removed":
+            status_label = "Remoção confirmada"
+            sub_label = "Não segue mais você" if item.kind == "followers" else "Você não segue mais"
+        elif outcome == "untestable":
+            status_label = "Não retestável"
+            sub_label = "Indisponível após 1 reteste"
+        elif outcome == "exists_waiting_confirmation":
+            status_label = "Existe no Instagram"
+            sub_label = "Aguardando 2ª exportação para confirmar"
+        elif outcome in ("exists_confirmed_via_following", "exists_confirmed_via_followers"):
+            status_label = "Ativo confirmado"
+            sub_label = "Verificado internamente pela outra lista"
+        elif outcome == "reappeared":
+            status_label = "Reapareceu"
+            sub_label = "Voltou a aparecer na exportação"
+        elif outcome == "followed_again":
+            status_label = "Voltou a seguir"
+            sub_label = "Voltou a seguir após remoção confirmada"
+        else:
+            status_label = "Concluído"
+            sub_label = outcome or ""
+    elif status == "cancelled":
+        badge_class = "badge-cancelled"
+        status_label = "Cancelado"
+        sub_label = "Perfil voltou antes da averiguação"
+
+    return {
+        "id": item.id,
+        "username": item.username,
+        "kind": item.kind,
+        "kind_label": kind_label,
+        "status": status,
+        "status_label": status_label,
+        "badge_class": badge_class,
+        "sub_label": sub_label,
+        "attempts": attempts,
+        "outcome": outcome,
+        "next_attempt_at": item.next_attempt_at.isoformat() if item.next_attempt_at else None,
+        "next_attempt_formatted": next_time_str,
+    }
+
+
 def build_validation_progress(user_id):
     active = RelationshipValidation.query.filter(
         RelationshipValidation.user_id == user_id,
@@ -962,8 +1052,20 @@ def build_validation_progress(user_id):
     completed = sum(1 for item in validations if item.status in {"completed", "cancelled"})
     items = sorted(
         validations,
-        key=lambda item: (item.status not in {"running", "queued", "retry"}, item.next_attempt_at, item.id),
+        key=lambda item: (item.status not in {"running", "queued", "retry"}, item.next_attempt_at or datetime.max, item.id),
     )[:20]
+
+    active_items = [item for item in validations if item.status in {"queued", "retry", "running"}]
+    next_active = min(
+        [item for item in active_items if item.next_attempt_at],
+        key=lambda x: x.next_attempt_at,
+        default=None,
+    )
+    next_attempt_formatted = format_validation_attempt_time(next_active.next_attempt_at) if next_active else None
+
+    max_attempts = app.config.get("PROFILE_VALIDATION_MAX_ATTEMPTS", 3)
+    formatted_items = [format_validation_item(item, max_attempts) for item in items]
+
     return {
         "active": bool(active),
         "total": total,
@@ -971,8 +1073,10 @@ def build_validation_progress(user_id):
         "percent": round((completed / total) * 100) if total else 0,
         "queued": sum(1 for item in validations if item.status in {"queued", "retry"}),
         "running": sum(1 for item in validations if item.status == "running"),
-        "items": items,
-        "queue_items": items,
+        "next_attempt_at": next_active.next_attempt_at.isoformat() if next_active and next_active.next_attempt_at else None,
+        "next_attempt_formatted": next_attempt_formatted,
+        "items": formatted_items,
+        "queue_items": formatted_items,
     }
 
 
@@ -987,17 +1091,9 @@ def validation_status():
         "percent": progress["percent"],
         "queued": progress["queued"],
         "running": progress["running"],
-        "items": [
-            {
-                "username": item.username,
-                "kind": item.kind,
-                "status": item.status,
-                "outcome": item.outcome,
-                "attempts": item.attempts,
-                "next_attempt_at": item.next_attempt_at.isoformat() if item.next_attempt_at else None,
-            }
-            for item in progress["items"]
-        ],
+        "next_attempt_at": progress["next_attempt_at"],
+        "next_attempt_formatted": progress["next_attempt_formatted"],
+        "items": progress["items"],
     })
 
 
@@ -1021,7 +1117,7 @@ def dashboard():
 
 
 
-    if action_filter not in {'all', 'gained', 'missing', 'reappeared', 'lost'}:
+    if action_filter not in {'all', 'gained', 'missing', 'reappeared', 'lost', 'followed_again'}:
 
         action_filter = 'all'
 
@@ -1222,6 +1318,27 @@ def dashboard():
         item.username.casefold(): item.missing_since for item in absent_following_records
     }
 
+    followers_absent_dict = {item.username.casefold(): item.username for item in absent_records}
+    following_absent_dict = {item.username.casefold(): item.username for item in absent_following_records}
+    both_absent_keys = set(followers_absent_dict) & set(following_absent_dict)
+
+    absent_both = [followers_absent_dict[k] for k in both_absent_keys]
+    absent_both_dates = {
+        k: max(filter(None, (absent_dates.get(k), absent_following_dates.get(k))), default=None)
+        for k in both_absent_keys
+    }
+    absent_both = order_usernames_newest_first(absent_both, absent_both_dates)
+
+    absent_followers_only = [item for item in absent_followers if item.casefold() not in both_absent_keys]
+    absent_followers_only_dates = {
+        item.casefold(): absent_dates.get(item.casefold()) for item in absent_followers_only
+    }
+
+    absent_following_only = [item for item in absent_following if item.casefold() not in both_absent_keys]
+    absent_following_only_dates = {
+        item.casefold(): absent_following_dates.get(item.casefold()) for item in absent_following_only
+    }
+
 
 
     graph_html = generate_activity_graph(history_logs, kind_filter)
@@ -1249,31 +1366,20 @@ def dashboard():
     lost_filtered = sum(1 for item in history_logs if item.action == 'lost')
 
     reappeared_filtered = sum(1 for item in history_logs if item.action == 'reappeared')
-
-
+    followed_again_filtered = sum(1 for item in history_logs if item.action == 'followed_again')
 
     kpis = {
-
         "followers_total": len(current_followers),
-
         "following_total": len(current_following),
-
         "mutuals_total": len(mutuals),
-
         "not_following_back_total": len(not_following_back),
-
         "absent_total": len({item.casefold() for item in absent_followers + absent_following}),
-
         "gained_filtered": gained_filtered,
-
         "missing_filtered": missing_filtered,
-
         "lost_filtered": lost_filtered,
-
         "reappeared_filtered": reappeared_filtered,
-
-        "net_filtered": gained_filtered + reappeared_filtered - lost_filtered,
-
+        "followed_again_filtered": followed_again_filtered,
+        "net_filtered": gained_filtered + reappeared_filtered + followed_again_filtered - lost_filtered,
     }
 
 
@@ -1299,10 +1405,15 @@ def dashboard():
                            mutuals_dates=mutuals_dates,
 
                            absent_followers=absent_followers,
-
                            absent_dates=absent_dates,
                            absent_following=absent_following,
                            absent_following_dates=absent_following_dates,
+                           absent_both=absent_both,
+                           absent_both_dates=absent_both_dates,
+                           absent_followers_only=absent_followers_only,
+                           absent_followers_only_dates=absent_followers_only_dates,
+                           absent_following_only=absent_following_only,
+                           absent_following_only_dates=absent_following_only_dates,
                            validation_progress=build_validation_progress(user_id),
 
                            graph_html=graph_html,
@@ -1350,35 +1461,34 @@ def processing_history():
     )
 
     for run in pagination.items:
-
         try:
-
             run.gained_list = json.loads(run.gained_usernames or "[]")
-
             run.lost_list = json.loads(run.lost_usernames or "[]")
-
             run.reappeared_list = json.loads(run.reappeared_usernames or "[]")
-
+            run.followed_again_list = json.loads(getattr(run, "followed_again_usernames", None) or "[]")
             run.confirmed_list = [
                 item.username
                 for item in RelationshipValidation.query.filter_by(
                     analysis_run_id=run.id, outcome="relationship_removed"
                 ).order_by(RelationshipValidation.completed_at.desc()).all()
             ]
-
             run.validation_percent = round((run.validation_completed / run.validation_total) * 100) if run.validation_total else 0
-
+            if run.validation_total and run.validation_completed < run.validation_total:
+                next_val = RelationshipValidation.query.filter(
+                    RelationshipValidation.analysis_run_id == run.id,
+                    RelationshipValidation.status.in_(("queued", "retry", "running")),
+                ).order_by(RelationshipValidation.next_attempt_at.asc()).first()
+                run.next_attempt_formatted = format_validation_attempt_time(next_val.next_attempt_at) if next_val and next_val.next_attempt_at else None
+            else:
+                run.next_attempt_formatted = None
         except json.JSONDecodeError:
-
             run.gained_list = []
-
             run.lost_list = []
-
             run.reappeared_list = []
-
+            run.followed_again_list = []
             run.confirmed_list = []
-
             run.validation_percent = 0
+            run.next_attempt_formatted = None
 
     return render_template("processing_history.html", pagination=pagination)
 
@@ -1401,17 +1511,11 @@ def generate_activity_graph(history_logs, kind):
 
 
     grouped = {}
-
     for log in history_logs:
-
         day = log.date_added.strftime("%Y-%m-%d")
-
-        grouped.setdefault(day, {"gained": 0, "missing": 0, "lost": 0, "reappeared": 0})
-
+        grouped.setdefault(day, {"gained": 0, "missing": 0, "lost": 0, "reappeared": 0, "followed_again": 0})
         action = log.action
-
         if action in grouped[day]:
-
             grouped[day][action] += 1
 
 
@@ -1569,4 +1673,3 @@ def reset_db():
 if __name__ == "__main__":
 
     app.run(debug=True)
-

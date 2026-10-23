@@ -53,14 +53,21 @@ def send_profile_validation_notification(user_id, validations):
     parts = []
     if outcomes.get("relationship_removed"):
         parts.append(f"{outcomes['relationship_removed']} relação(ões) removida(s) confirmada(s)")
+    confirmed_active = outcomes.get("exists_confirmed_via_following", 0) + outcomes.get("exists_confirmed_via_followers", 0)
+    if confirmed_active:
+        parts.append(f"{confirmed_active} perfil(is) ativo(s) confirmado(s)")
     if outcomes.get("unavailable"):
         parts.append(f"{outcomes['unavailable']} perfil(is) indisponível(is)")
+    if outcomes.get("untestable"):
+        parts.append(f"{outcomes['untestable']} perfil(is) não retestável(is)")
     if outcomes.get("exists_waiting_confirmation"):
         parts.append(f"{outcomes['exists_waiting_confirmation']} aguardando nova exportação")
     if outcomes.get("inconclusive"):
         parts.append(f"{outcomes['inconclusive']} verificação(ões) inconclusiva(s)")
     if outcomes.get("reappeared"):
         parts.append(f"{outcomes['reappeared']} perfil(is) reapareceu(ram)")
+    if outcomes.get("followed_again"):
+        parts.append(f"{outcomes['followed_again']} perfil(is) voltou(aram) a seguir")
 
     _send_push(
         user_id,

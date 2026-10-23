@@ -194,6 +194,7 @@ def process_next_validation():
         return True
 
     if check.outcome == "exists":
+        follower.retest_count = 0
         if follower.missing_count >= 2:
             follower.state = "removed"
             outcome = "relationship_removed"
@@ -222,8 +223,23 @@ def process_next_validation():
             outcome = "exists_waiting_confirmation"
         _complete(validation, follower, outcome, check.details, now)
     elif check.outcome == "unavailable":
-        follower.state = "absent"
-        _complete(validation, follower, "unavailable", check.details, now)
+        if getattr(follower, "retest_count", 0) == 0:
+            follower.state = "absent"
+            follower.retest_count = 1
+            follower.validation_status = "queued"
+            follower.last_validation_result = "unavailable_pending_retest"
+            follower.last_validated_at = now
+            validation.status = "retry"
+            validation.outcome = "unavailable_pending_retest"
+            validation.details = "Perfil indisponível no Instagram. 1 reteste agendado para verificar reativação."
+            validation.next_attempt_at = now + _random_delay(
+                "PROFILE_VALIDATION_RETRY_MIN_SECONDS",
+                "PROFILE_VALIDATION_RETRY_MAX_SECONDS",
+            )
+        else:
+            follower.state = "untestable"
+            follower.validation_status = "completed"
+            _complete(validation, follower, "untestable", "Perfil permaneceu indisponível após 1 reteste. Definido como não retestável.", now)
     elif validation.attempts < current_app.config["PROFILE_VALIDATION_MAX_ATTEMPTS"]:
         validation.status = "retry"
         validation.outcome = "inconclusive"
@@ -236,8 +252,23 @@ def process_next_validation():
         follower.last_validation_result = "inconclusive"
         follower.last_validated_at = now
     else:
-        follower.state = "absent"
-        _complete(validation, follower, "inconclusive", check.details, now)
+        if getattr(follower, "retest_count", 0) == 0:
+            follower.state = "absent"
+            follower.retest_count = 1
+            follower.validation_status = "queued"
+            follower.last_validation_result = "inconclusive_pending_retest"
+            follower.last_validated_at = now
+            validation.status = "retry"
+            validation.outcome = "inconclusive_pending_retest"
+            validation.details = f"Consultas inconclusivas ({check.details}). 1 reteste agendado."
+            validation.next_attempt_at = now + _random_delay(
+                "PROFILE_VALIDATION_RETRY_MIN_SECONDS",
+                "PROFILE_VALIDATION_RETRY_MAX_SECONDS",
+            )
+        else:
+            follower.state = "untestable"
+            follower.validation_status = "completed"
+            _complete(validation, follower, "untestable", f"Consultas inconclusivas persistentes ({check.details}). Definido como não retestável.", now)
 
     db.session.commit()
     notify_finished_validation_batches()

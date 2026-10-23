@@ -283,14 +283,17 @@ def sync_connection(connection):
             totals.gained += summary.gained
             totals.lost += summary.lost
             totals.reappeared += summary.reappeared
+            totals.followed_again += getattr(summary, "followed_again", 0)
             totals.followers_gained += summary.followers_gained
             totals.followers_lost += summary.followers_lost
             totals.followers_missing += summary.followers_missing
             totals.followers_reappeared += summary.followers_reappeared
+            totals.followers_followed_again += getattr(summary, "followers_followed_again", 0)
             totals.validation_total += summary.validation_total
             totals.gained_usernames.extend(summary.gained_usernames)
             totals.lost_usernames.extend(summary.lost_usernames)
             totals.reappeared_usernames.extend(summary.reappeared_usernames)
+            totals.followed_again_usernames.extend(getattr(summary, "followed_again_usernames", []))
         send_analysis_notification(connection.user_id, totals)
     return imported
 

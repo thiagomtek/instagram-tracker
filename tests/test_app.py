@@ -263,6 +263,63 @@ class AppTest(unittest.TestCase):
         self.assertIn(b"+3", response.data)
         self.assertIn(b"-1", response.data)
 
+    def test_validation_status_api_and_dashboard_render_with_scheduled_retest(self):
+        f = Follower(user_id=self.user_id, username="sumido_teste", kind="followers", state="pending", is_present=False)
+        db.session.add(f)
+        db.session.commit()
+        val = RelationshipValidation(
+            user_id=self.user_id,
+            follower_id=f.id,
+            username="sumido_teste",
+            kind="followers",
+            status="retry",
+            outcome="unavailable_pending_retest",
+            attempts=1,
+            next_attempt_at=datetime.utcnow() + timedelta(minutes=30),
+        )
+        db.session.add(val)
+        db.session.commit()
+
+        self.login()
+        # API status test
+        res = self.client.get("/api/validations/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.json
+        self.assertTrue(data["active"])
+        self.assertEqual(data["queued"], 1)
+        self.assertIsNotNone(data["next_attempt_formatted"])
+        self.assertEqual(data["items"][0]["status_label"], "Reaveriguação agendada")
+        self.assertIn("Reteste 1/1 previsto", data["items"][0]["sub_label"])
+
+        # Dashboard rendering test
+        dash_res = self.client.get("/dashboard")
+        self.assertEqual(dash_res.status_code, 200)
+        self.assertIn(b"Pr\xc3\xb3xima averigua\xc3\xa7\xc3\xa3o prevista", dash_res.data)
+        self.assertIn(b"@sumido_teste", dash_res.data)
+        self.assertIn(b"Reaverigua\xc3\xa7\xc3\xa3o agendada", dash_res.data)
+
+    def test_dashboard_renders_unified_absent_both_card(self):
+        # absent in followers
+        db.session.add(Follower(
+            user_id=self.user_id, username="sumido_ambos", kind="followers", state="pending", is_present=False, missing_since=datetime.utcnow()
+        ))
+        # absent in following
+        db.session.add(Follower(
+            user_id=self.user_id, username="sumido_ambos", kind="following", state="pending", is_present=False, missing_since=datetime.utcnow()
+        ))
+        # absent only in followers
+        db.session.add(Follower(
+            user_id=self.user_id, username="apenas_seguidor", kind="followers", state="pending", is_present=False, missing_since=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        self.login()
+        res = self.client.get("/dashboard")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(b"Ausentes em ambas as listas", res.data)
+        self.assertIn(b"sumido_ambos", res.data)
+        self.assertIn(b"apenas_seguidor", res.data)
+
 
 if __name__ == "__main__":
     unittest.main()

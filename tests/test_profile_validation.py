@@ -171,3 +171,45 @@ class ProfileValidationTest(unittest.TestCase):
         self.assertEqual(val.outcome, "exists_waiting_confirmation")
         self.assertEqual(History.query.filter_by(user_id=self.user_id, action="lost").count(), 0)
         mock_notify.assert_called_once()
+
+    @patch("services.profile_validation.send_profile_validation_notification")
+    @patch("services.profile_validation.inspect_instagram_profile")
+    def test_unavailable_retests_once_then_marks_untestable(self, mock_inspect, mock_notify):
+        mock_inspect.return_value = ProfileCheck("unavailable", "Perfil não encontrado (404)")
+
+        follower = Follower(
+            user_id=self.user_id,
+            username="sumido",
+            kind="followers",
+            is_present=False,
+            state="pending",
+            missing_count=1,
+            retest_count=0,
+            missing_since=datetime.now(),
+        )
+        db.session.add(follower)
+        db.session.commit()
+
+        val, _ = enqueue_relationship_validation(follower)
+        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        db.session.commit()
+
+        # Attempt 1: marks retry and retest_count = 1
+        processed = process_next_validation()
+        self.assertTrue(processed)
+        db.session.refresh(follower)
+        db.session.refresh(val)
+        self.assertEqual(val.status, "retry")
+        self.assertEqual(val.outcome, "unavailable_pending_retest")
+        self.assertEqual(follower.retest_count, 1)
+
+        # Attempt 2 (the 1 allowed retest): profile still unavailable -> becomes untestable
+        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        db.session.commit()
+        processed = process_next_validation()
+        self.assertTrue(processed)
+        db.session.refresh(follower)
+        db.session.refresh(val)
+        self.assertEqual(val.status, "completed")
+        self.assertEqual(val.outcome, "untestable")
+        self.assertEqual(follower.state, "untestable")

@@ -14,3 +14,4 @@ class Follower(db.Model):
     validation_status = db.Column(db.String(32), nullable=False, default="idle")
     last_validation_result = db.Column(db.String(32), nullable=True)
     last_validated_at = db.Column(db.DateTime, nullable=True)
+    retest_count = db.Column(db.Integer, nullable=False, default=0)

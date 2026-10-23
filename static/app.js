@@ -139,20 +139,49 @@
         const bar = document.getElementById('validationProgressBar');
         const track = bar?.parentElement;
         const queue = document.getElementById('validationQueue');
-        progressText.textContent = `${data.completed} de ${data.total} concluídas · ${data.queued} na fila${data.running ? ` · ${data.running} em validação` : ''}`;
-        percent.textContent = `${data.percent}%`;
-        bar.style.width = `${data.percent}%`;
+        const nextTimeEl = document.getElementById('validationNextTime');
+
+        if (progressText) {
+            progressText.textContent = `${data.completed} de ${data.total} concluídas · ${data.queued} na fila${data.running ? ` · ${data.running} em validação` : ''}`;
+        }
+        if (percent) percent.textContent = `${data.percent}%`;
+        if (bar) bar.style.width = `${data.percent}%`;
         track?.setAttribute('aria-valuenow', String(data.percent));
+
+        if (nextTimeEl) {
+            if (data.next_attempt_formatted && (data.queued || data.running)) {
+                nextTimeEl.style.display = 'inline-flex';
+                nextTimeEl.innerHTML = `<i class="fa-solid fa-clock"></i> Próxima averiguação prevista às ${data.next_attempt_formatted}`;
+            } else {
+                nextTimeEl.style.display = 'none';
+                nextTimeEl.innerHTML = '';
+            }
+        }
+
+        if (!queue || !Array.isArray(data.items)) return;
         queue.replaceChildren();
-        data.items.forEach((validation) => {
-            const item = document.createElement('div');
-            item.className = 'validation-queue-item';
-            const username = document.createElement('strong');
-            username.textContent = `@${validation.username}`;
-            const status = document.createElement('span');
-            status.textContent = validationLabel(validation);
-            item.append(username, status);
-            queue.appendChild(item);
+        data.items.forEach((item) => {
+            const itemEl = document.createElement('div');
+            itemEl.className = 'validation-queue-item';
+
+            const headerEl = document.createElement('div');
+            headerEl.className = 'validation-item-header';
+
+            const usernameEl = document.createElement('strong');
+            usernameEl.textContent = `@${item.username}`;
+
+            const badgeEl = document.createElement('span');
+            badgeEl.className = `validation-badge ${item.badge_class || 'badge-queued'}`;
+            badgeEl.textContent = item.status_label || item.status;
+
+            headerEl.append(usernameEl, badgeEl);
+
+            const subEl = document.createElement('div');
+            subEl.className = 'validation-item-sub';
+            subEl.textContent = item.sub_label || '';
+
+            itemEl.append(headerEl, subEl);
+            queue.appendChild(itemEl);
         });
     }
 

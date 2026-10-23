@@ -59,11 +59,13 @@ class AnalysisRun(db.Model):
     followers_lost = db.Column(db.Integer, nullable=False, default=0)
     followers_missing = db.Column(db.Integer, nullable=False, default=0)
     followers_reappeared = db.Column(db.Integer, nullable=False, default=0)
+    followers_followed_again = db.Column(db.Integer, nullable=False, default=0)
     validation_total = db.Column(db.Integer, nullable=False, default=0)
     validation_completed = db.Column(db.Integer, nullable=False, default=0)
     gained_usernames = db.Column(db.Text, nullable=True)
     lost_usernames = db.Column(db.Text, nullable=True)
     reappeared_usernames = db.Column(db.Text, nullable=True)
+    followed_again_usernames = db.Column(db.Text, nullable=True)
     error = db.Column(db.Text, nullable=True)
     cleanup_error = db.Column(db.Text, nullable=True)
 
