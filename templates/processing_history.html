@@ -33,6 +33,14 @@
             </span>
         </div>
 
+        {% if run.validation_total %}
+        <div class="run-validation-progress">
+            <div><strong>Validação de perfis</strong><span>{{ run.validation_completed }} de {{ run.validation_total }} concluídas · {{ run.validation_percent }}%</span></div>
+            <div class="validation-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ run.validation_percent }}"><span style="width: {{ run.validation_percent }}%"></span></div>
+            {% if run.validation_completed < run.validation_total %}<small>Em segundo plano, uma consulta por vez e com intervalos variados.</small>{% else %}<small>Validação finalizada e notificação enviada.</small>{% endif %}
+        </div>
+        {% endif %}
+
         <div class="processing-meta">
             <span><small>Início</small><strong>{{ run.started_at|local_datetime }}</strong></span>
             <span><small>Duração</small><strong>{{ run|duration }}</strong></span>
@@ -41,21 +49,31 @@
         </div>
 
         <div class="processing-result">
-            <div class="result-number gained"><span>+{{ run.followers_gained }}</span><small>seguidores ganhos</small></div>
-            <div class="result-number lost"><span>-{{ run.followers_lost }}</span><small>seguidores perdidos</small></div>
+            <div class="result-number gained"><span>+{{ run.followers_gained }}</span><small>novos seguidores</small></div>
+            <div class="result-number missing"><span>? {{ run.followers_missing }}</span><small>aguardando validação</small></div>
+            <div class="result-number lost"><span>−{{ run.followers_lost }}</span><small>remoções confirmadas</small></div>
+            <div class="result-number reappeared"><span>↺ {{ run.followers_reappeared }}</span><small>perfis que reapareceram</small></div>
         </div>
 
-        {% if run.gained_list or run.lost_list %}
+        {% if run.gained_list or run.lost_list or run.confirmed_list or run.reappeared_list %}
         <details class="run-details">
             <summary>Ver perfis alterados</summary>
             <div class="changed-users-grid">
                 <div>
-                    <strong class="text-success">Ganhos</strong>
+                    <strong class="text-success">Novos</strong>
                     {% for username in run.gained_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
                 </div>
                 <div>
-                    <strong class="text-danger">Perdidos</strong>
+                    <strong class="text-warning">Aguardando validação</strong>
                     {% for username in run.lost_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
+                </div>
+                <div>
+                    <strong class="text-danger">Remoções confirmadas</strong>
+                    {% for username in run.confirmed_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
+                </div>
+                <div>
+                    <strong class="text-info">Reapareceram</strong>
+                    {% for username in run.reappeared_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
                 </div>
             </div>
         </details>

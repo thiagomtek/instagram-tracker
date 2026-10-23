@@ -242,7 +242,7 @@ def sync_connection(connection):
         try:
             with TemporaryDirectory(prefix="instagram-drive-") as temp_dir:
                 local_paths = [_download(service, item, temp_dir) for item in items]
-                summary = process_import_paths(local_paths, connection.user_id)
+                summary = process_import_paths(local_paths, connection.user_id, analysis_run_id=analysis_run.id)
         except Exception as exc:
             fail_analysis_run(analysis_run.id, exc)
             raise
@@ -282,10 +282,15 @@ def sync_connection(connection):
                 totals.following_found = summary.following_found
             totals.gained += summary.gained
             totals.lost += summary.lost
+            totals.reappeared += summary.reappeared
             totals.followers_gained += summary.followers_gained
             totals.followers_lost += summary.followers_lost
+            totals.followers_missing += summary.followers_missing
+            totals.followers_reappeared += summary.followers_reappeared
+            totals.validation_total += summary.validation_total
             totals.gained_usernames.extend(summary.gained_usernames)
             totals.lost_usernames.extend(summary.lost_usernames)
+            totals.reappeared_usernames.extend(summary.reappeared_usernames)
         send_analysis_notification(connection.user_id, totals)
     return imported
 

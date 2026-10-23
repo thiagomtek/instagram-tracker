@@ -9,7 +9,9 @@ from zipfile import BadZipFile, ZipFile
 
 from database import db
 from models.history import History
+from models.follower import Follower
 from services.parser import detect_kind, parse_instagram_file
+from services.profile_validation import enqueue_relationship_validation
 from services.storage import save_followers
 
 
@@ -24,10 +26,15 @@ class ImportSummary:
     following_found: int = 0
     gained: int = 0
     lost: int = 0
+    reappeared: int = 0
     followers_gained: int = 0
     followers_lost: int = 0
+    followers_missing: int = 0
+    followers_reappeared: int = 0
+    validation_total: int = 0
     gained_usernames: list = field(default_factory=list)
     lost_usernames: list = field(default_factory=list)
+    reappeared_usernames: list = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)
@@ -39,7 +46,10 @@ class ImportSummary:
         return (
             f"{self.files_read} arquivo(s) analisado(s), "
             f"{self.followers_found} seguidores e {self.following_found} perfis seguidos. "
-            f"Seguidores: +{self.followers_gained} / -{self.followers_lost}."
+            f"Seguidores: {self.followers_gained} novo(s), "
+            f"{self.followers_missing} aguardando validação, "
+            f"{self.followers_lost} remoção(ões) confirmada(s), "
+            f"{self.followers_reappeared} reaparecido(s)."
         )
 
 
@@ -98,7 +108,7 @@ def _deduplicate(items):
     return list(by_username.values())
 
 
-def process_import_paths(paths, user_id):
+def process_import_paths(paths, user_id, analysis_run_id=None):
     """Process an upload batch without retaining any source file on the server."""
     with TemporaryDirectory(prefix="instagram-analysis-") as extraction_root:
         files = _discover_data_files(paths, extraction_root)
@@ -114,27 +124,55 @@ def process_import_paths(paths, user_id):
             raise ValueError("Nenhum arquivo de relacionamentos do Instagram foi reconhecido.")
 
         summary = ImportSummary(files_read=len(files))
+        observed_at = datetime.now()
         for kind in ("followers", "following"):
             if kind not in grouped:
                 continue
             items = _deduplicate(grouped.get(kind, []))
-            gained_names, lost_names = save_followers(kind, items, user_id, commit=False)
+            gained_names, missing_names, reappeared_names = save_followers(
+                kind,
+                items,
+                user_id,
+                commit=False,
+                observed_at=observed_at,
+            )
             for username in gained_names:
                 db.session.add(
-                    History(user_id=user_id, username=username, action="gained", kind=kind, date_added=datetime.now())
+                    History(user_id=user_id, username=username, action="gained", kind=kind, date_added=observed_at)
                 )
-            for username in lost_names:
+            for username in missing_names:
                 db.session.add(
-                    History(user_id=user_id, username=username, action="lost", kind=kind, date_added=datetime.now())
+                    History(user_id=user_id, username=username, action="missing", kind=kind, date_added=observed_at)
                 )
+            for username in reappeared_names:
+                db.session.add(
+                    History(user_id=user_id, username=username, action="reappeared", kind=kind, date_added=observed_at)
+                )
+            validation_candidates = Follower.query.filter(
+                Follower.user_id == user_id,
+                Follower.kind == kind,
+                Follower.is_present.is_(False),
+                Follower.state == "pending",
+                Follower.validation_status.in_(("idle", "completed")),
+            ).all()
+            for follower in validation_candidates:
+                _, created = enqueue_relationship_validation(
+                    follower,
+                    analysis_run_id=analysis_run_id,
+                    observed_at=observed_at,
+                )
+                if created:
+                    summary.validation_total += 1
             summary.gained += len(gained_names)
-            summary.lost += len(lost_names)
+            summary.reappeared += len(reappeared_names)
             if kind == "followers":
                 summary.followers_found = len(items)
                 summary.followers_gained = len(gained_names)
-                summary.followers_lost = len(lost_names)
+                summary.followers_missing = len(missing_names)
+                summary.followers_reappeared = len(reappeared_names)
                 summary.gained_usernames = gained_names
-                summary.lost_usernames = lost_names
+                summary.lost_usernames = missing_names
+                summary.reappeared_usernames = reappeared_names
             else:
                 summary.following_found = len(items)
 
@@ -142,15 +180,14 @@ def process_import_paths(paths, user_id):
             exists = History.query.filter_by(
                 user_id=user_id,
                 username=item["username"],
-                action="lost",
                 kind="following",
-            ).first()
+            ).filter(History.action.in_(("missing", "lost"))).first()
             if not exists:
                 db.session.add(
                     History(
                         user_id=user_id,
                         username=item["username"],
-                        action="lost",
+                        action="missing",
                         kind="following",
                         date_added=item["date"],
                     )

@@ -83,9 +83,9 @@ class ImporterTest(unittest.TestCase):
                 )
             summary = process_import_paths([archive], self.user_id)
 
-        self.assertEqual(summary.lost, 1)
+        self.assertEqual(summary.followers_missing, 1)
         self.assertEqual(
-            [item.username for item in Follower.query.filter_by(user_id=self.user_id, kind="followers")],
+            [item.username for item in Follower.query.filter_by(user_id=self.user_id, kind="followers", is_present=True)],
             ["ana"],
         )
 
@@ -102,9 +102,9 @@ class ImporterTest(unittest.TestCase):
             current.write_text(relationship_html(["ana"]), encoding="utf-8")
             summary = process_import_paths([current], self.user_id)
 
-        self.assertEqual(summary.followers_lost, 1)
+        self.assertEqual(summary.followers_missing, 1)
         self.assertEqual(
-            {item.username for item in Follower.query.filter_by(user_id=self.user_id, kind="followers")},
+            {item.username for item in Follower.query.filter_by(user_id=self.user_id, kind="followers", is_present=True)},
             {"ana"},
         )
 
@@ -157,7 +157,7 @@ class ImporterTest(unittest.TestCase):
 
         self.assertEqual(load_followers("followers", self.user_id), ["base_recente", "base_antiga"])
 
-        gained, lost = save_followers(
+        gained, missing, reappeared = save_followers(
             "followers",
             [
                 {"username": "base_antiga", "date": now - timedelta(days=40)},
@@ -168,7 +168,8 @@ class ImporterTest(unittest.TestCase):
         )
 
         self.assertEqual(gained, ["nova_recente", "nova_antiga"])
-        self.assertEqual(lost, ["base_recente"])
+        self.assertEqual(missing, ["base_recente"])
+        self.assertEqual(reappeared, [])
 
 
 if __name__ == "__main__":

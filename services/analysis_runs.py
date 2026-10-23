@@ -25,8 +25,13 @@ def complete_analysis_run(run, summary, cleanup_error=None):
     run.following_found = summary.following_found
     run.followers_gained = summary.followers_gained
     run.followers_lost = summary.followers_lost
+    run.followers_missing = summary.followers_missing
+    run.followers_reappeared = summary.followers_reappeared
+    run.validation_total = summary.validation_total
+    run.validation_completed = 0
     run.gained_usernames = json.dumps(summary.gained_usernames, ensure_ascii=False)
     run.lost_usernames = json.dumps(summary.lost_usernames, ensure_ascii=False)
+    run.reappeared_usernames = json.dumps(summary.reappeared_usernames, ensure_ascii=False)
     run.cleanup_error = cleanup_error
     db.session.commit()
 

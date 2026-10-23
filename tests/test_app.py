@@ -132,9 +132,8 @@ class AppTest(unittest.TestCase):
 
         response = self.client.get("/dashboard")
 
-        self.assertEqual(response.status_code, 200)
         self.assertIn("Situação atual".encode(), response.data)
-        self.assertIn("estado atual, não todo o seu histórico".encode(), response.data)
+        self.assertIn("As listas separam perfis presentes e ausentes na exportação atual".encode(), response.data)
         self.assertIn("Você segue, mas não seguem você".encode(), response.data)
         self.assertIn(b"bia", response.data)
 

@@ -9,6 +9,7 @@ logging.basicConfig(
 
 from app import app
 from services.google_drive import sync_all_connections
+from services.profile_validation import process_next_validation, seconds_until_next_validation
 
 
 running = True
@@ -24,12 +25,17 @@ signal.signal(signal.SIGINT, stop_worker)
 
 
 if __name__ == "__main__":
-    interval = app.config["GOOGLE_DRIVE_POLL_SECONDS"]
-    app.logger.info("Worker do Google Drive iniciado; verificação automática a cada 1 hora")
+    drive_interval = app.config["GOOGLE_DRIVE_POLL_SECONDS"]
+    next_drive_check = 0
+    next_profile_check = 0
+    app.logger.info("Worker iniciado: Google Drive a cada 1 hora e validações assíncronas serializadas")
     while running:
+        now = time.monotonic()
         with app.app_context():
-            sync_all_connections()
-        for _ in range(interval):
-            if not running:
-                break
-            time.sleep(1)
+            if now >= next_drive_check:
+                sync_all_connections()
+                next_drive_check = time.monotonic() + drive_interval
+            if now >= next_profile_check:
+                processed = process_next_validation()
+                next_profile_check = time.monotonic() + (seconds_until_next_validation() if processed else 60)
+        time.sleep(5)

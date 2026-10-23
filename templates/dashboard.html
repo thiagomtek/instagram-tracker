@@ -38,10 +38,35 @@
 <div class="snapshot-note" role="note">
     <span class="snapshot-note-icon" aria-hidden="true">✓</span>
     <div>
-        <strong>As listas abaixo mostram o estado atual, não todo o seu histórico.</strong>
-        <p>Mesmo que o arquivo traga datas antigas, só entram aqui os perfis presentes na exportação mais recente. Uma nova importação substitui o retrato anterior.</p>
+        <strong>As listas separam perfis presentes e ausentes na exportação atual.</strong>
+        <p>Ausente não significa necessariamente que deixou de seguir: a conta pode estar desativada, excluída ou ter bloqueado você. Se voltar a aparecer, o sistema registra “reapareceu”.</p>
     </div>
 </div>
+
+{% if validation_progress.total %}
+<section class="glass-card validation-progress" id="validationProgress" data-status-url="{{ url_for('validation_status') }}">
+    <div class="validation-progress-heading">
+        <div>
+            <span class="eyebrow">Validação assíncrona</span>
+            <h2>Verificação de perfis</h2>
+            <p id="validationProgressText">{{ validation_progress.completed }} de {{ validation_progress.total }} concluídas · {{ validation_progress.queued }} na fila{% if validation_progress.running %} · {{ validation_progress.running }} em validação{% endif %}</p>
+        </div>
+        <strong id="validationProgressPercent">{{ validation_progress.percent }}%</strong>
+    </div>
+    <div class="validation-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ validation_progress.percent }}">
+        <span id="validationProgressBar" style="width: {{ validation_progress.percent }}%"></span>
+    </div>
+    <div class="validation-queue" id="validationQueue">
+        {% for item in validation_progress.items %}
+        <div class="validation-queue-item">
+            <strong>@{{ item.username }}</strong>
+            <span>{% if item.status == 'running' %}Validando agora{% elif item.status == 'retry' %}Nova tentativa agendada{% elif item.status == 'queued' %}Na fila{% elif item.outcome == 'relationship_removed' %}Relação removida confirmada{% elif item.outcome == 'unavailable' %}Perfil indisponível{% elif item.outcome == 'reappeared' %}Reapareceu{% elif item.outcome == 'exists_waiting_confirmation' %}Existe · aguardando nova exportação{% else %}Concluída{% endif %}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="microcopy">As consultas são executadas uma por vez, com horários variados, para reduzir bloqueios do Instagram. Você será notificado quando o lote terminar.</p>
+</section>
+{% endif %}
 
 <section class="kpi-grid" aria-label="Resumo atual">
     <article class="metric-card">
@@ -63,6 +88,11 @@
         <span class="metric-label">Sem retorno</span>
         <strong>{{ kpis.not_following_back_total }}</strong>
         <small>você segue, mas não seguem você</small>
+    </article>
+    <article class="metric-card missing">
+        <span class="metric-label">Ausentes</span>
+        <strong>{{ kpis.absent_total }}</strong>
+        <small>não aparecem na exportação atual</small>
     </article>
 </section>
 
@@ -98,6 +128,22 @@
         </summary>
         {{ user_list(fans, 'Ninguém nesta categoria.', fans_dates, 'Começou a seguir você em') }}
     </details>
+
+    <details class="relationship-card missing">
+        <summary>
+            <span><strong>Ausentes na exportação atual</strong><small>Podem ter desativado ou excluído a conta, bloqueado você ou deixado de seguir.</small></span>
+            <span class="count-pill">{{ absent_followers|length }}</span>
+        </summary>
+        {{ user_list(absent_followers, 'Nenhum perfil ausente.', absent_dates, 'Ausente desde') }}
+    </details>
+
+    <details class="relationship-card missing">
+        <summary>
+            <span><strong>Ausentes entre os perfis que você seguia</strong><small>Aguardando validação antes de confirmar que você deixou de seguir.</small></span>
+            <span class="count-pill">{{ absent_following|length }}</span>
+        </summary>
+        {{ user_list(absent_following, 'Nenhum perfil ausente nesta lista.', absent_following_dates, 'Ausente desde') }}
+    </details>
 </section>
 
 <section class="activity-section" aria-labelledby="activity-title">
@@ -132,9 +178,11 @@
         <div class="filter-field">
             <label for="action">Mudança</label>
             <select id="action" name="action" class="form-select form-dark">
-                <option value="all" {% if filters.action == 'all' %}selected{% endif %}>Entradas e saídas</option>
-                <option value="gained" {% if filters.action == 'gained' %}selected{% endif %}>Só entradas</option>
-                <option value="lost" {% if filters.action == 'lost' %}selected{% endif %}>Só saídas</option>
+                <option value="all" {% if filters.action == 'all' %}selected{% endif %}>Todas as mudanças</option>
+                <option value="gained" {% if filters.action == 'gained' %}selected{% endif %}>Novos</option>
+                <option value="missing" {% if filters.action == 'missing' %}selected{% endif %}>Ausentes</option>
+                <option value="lost" {% if filters.action == 'lost' %}selected{% endif %}>Remoções confirmadas</option>
+                <option value="reappeared" {% if filters.action == 'reappeared' %}selected{% endif %}>Reapareceram</option>
             </select>
         </div>
         <div class="filter-actions">
@@ -144,8 +192,10 @@
     </form>
 
     <div class="activity-summary" aria-label="Resultado dos filtros">
-        <div><span class="activity-dot gained"></span><strong>+{{ kpis.gained_filtered }}</strong><small>entradas</small></div>
-        <div><span class="activity-dot lost"></span><strong>-{{ kpis.lost_filtered }}</strong><small>saídas</small></div>
+        <div><span class="activity-dot gained"></span><strong>+{{ kpis.gained_filtered }}</strong><small>novos</small></div>
+        <div><span class="activity-dot missing"></span><strong>{{ kpis.missing_filtered }}</strong><small>aguardando validação</small></div>
+        <div><span class="activity-dot lost"></span><strong>-{{ kpis.lost_filtered }}</strong><small>remoções confirmadas</small></div>
+        <div><span class="activity-dot reappeared"></span><strong>↺ {{ kpis.reappeared_filtered }}</strong><small>reapareceram</small></div>
         <div class="net"><strong>{{ '+' if kpis.net_filtered > 0 else '' }}{{ kpis.net_filtered }}</strong><small>saldo no período</small></div>
     </div>
 
@@ -161,14 +211,20 @@
         <div class="activity-list">
             {% for log in history_logs %}
             <a class="activity-row" href="https://instagram.com/{{ log.username }}" target="_blank" rel="noopener noreferrer">
-                <span class="activity-icon {{ log.action }}" aria-hidden="true">{{ '+' if log.action == 'gained' else '−' }}</span>
+                <span class="activity-icon {{ log.action }}" aria-hidden="true">{% if log.action == 'gained' %}+{% elif log.action == 'reappeared' %}↺{% elif log.action == 'lost' %}−{% else %}?{% endif %}</span>
                 <span class="activity-copy">
                     <strong>{{ log.username }}</strong>
                     <small>
                         {% if log.kind == 'followers' %}
-                            {{ 'começou a seguir você' if log.action == 'gained' else 'deixou de seguir você' }}
+                            {% if log.action == 'gained' %}começou a seguir você
+                            {% elif log.action == 'reappeared' %}reapareceu entre seus seguidores
+                            {% elif log.action == 'lost' %}não segue mais você · confirmado
+                            {% else %}ficou ausente · aguardando validação{% endif %}
                         {% else %}
-                            {{ 'você começou a seguir' if log.action == 'gained' else 'você deixou de seguir' }}
+                            {% if log.action == 'gained' %}você começou a seguir
+                            {% elif log.action == 'reappeared' %}reapareceu entre os perfis que você segue
+                            {% elif log.action == 'lost' %}você não segue mais · confirmado
+                            {% else %}ficou ausente · aguardando validação{% endif %}
                         {% endif %}
                     </small>
                 </span>

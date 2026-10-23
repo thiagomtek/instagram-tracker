@@ -119,8 +119,61 @@
         fileInput.addEventListener('change', updateFileList);
     }
 
+    function validationLabel(item) {
+        if (item.status === 'running') return 'Validando agora';
+        if (item.status === 'retry') return 'Nova tentativa agendada';
+        if (item.status === 'queued') return 'Na fila';
+        if (item.outcome === 'relationship_removed') return 'Relação removida confirmada';
+        if (item.outcome === 'unavailable') return 'Perfil indisponível';
+        if (item.outcome === 'reappeared') return 'Reapareceu';
+        if (item.outcome === 'exists_waiting_confirmation') return 'Existe · aguardando nova exportação';
+        if (item.outcome === 'inconclusive') return 'Verificação inconclusiva';
+        return 'Concluída';
+    }
+
+    function renderValidationProgress(data) {
+        const card = document.getElementById('validationProgress');
+        if (!card) return;
+        const progressText = document.getElementById('validationProgressText');
+        const percent = document.getElementById('validationProgressPercent');
+        const bar = document.getElementById('validationProgressBar');
+        const track = bar?.parentElement;
+        const queue = document.getElementById('validationQueue');
+        progressText.textContent = `${data.completed} de ${data.total} concluídas · ${data.queued} na fila${data.running ? ` · ${data.running} em validação` : ''}`;
+        percent.textContent = `${data.percent}%`;
+        bar.style.width = `${data.percent}%`;
+        track?.setAttribute('aria-valuenow', String(data.percent));
+        queue.replaceChildren();
+        data.items.forEach((validation) => {
+            const item = document.createElement('div');
+            item.className = 'validation-queue-item';
+            const username = document.createElement('strong');
+            username.textContent = `@${validation.username}`;
+            const status = document.createElement('span');
+            status.textContent = validationLabel(validation);
+            item.append(username, status);
+            queue.appendChild(item);
+        });
+    }
+
+    function setupValidationProgress() {
+        const card = document.getElementById('validationProgress');
+        if (!card) return;
+        const refresh = async () => {
+            try {
+                const response = await fetch(card.dataset.statusUrl, {headers: {'Accept': 'application/json'}});
+                if (response.ok) renderValidationProgress(await response.json());
+            } catch (error) {
+                console.warn('Não foi possível atualizar o progresso das validações.', error);
+            }
+        };
+        refresh();
+        window.setInterval(refresh, 15000);
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
         setupUpload();
+        setupValidationProgress();
         await registerServiceWorker();
         await updateNotificationUi();
         document.getElementById('notificationButton')?.addEventListener('click', toggleNotifications);
