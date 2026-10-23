@@ -17,7 +17,7 @@ from models.follower import Follower
 from models.history import History
 from models.integration import AnalysisRun, DriveConnection, DriveImport, PushSubscription
 from models.user import User
-from services.storage import load_followers
+from services.storage import order_usernames_newest_first
 from services.compare import cross_reference
 from services.google_drive import (
     drive_service,
@@ -484,32 +484,61 @@ def dashboard():
     if action_filter != 'all':
         query = query.filter(History.action == action_filter)
 
-    history_logs = query.order_by(History.date_added.desc()).all()
+    history_logs = query.order_by(History.date_added.desc(), History.id.desc()).all()
 
-    current_followers = load_followers('followers', user_id)
+    follower_records = (
+        Follower.query.filter_by(user_id=user_id, kind='followers')
+        .order_by(Follower.date_added.desc(), Follower.username.asc())
+        .all()
+    )
     following_records = (
         Follower.query.filter_by(user_id=user_id, kind='following')
         .order_by(Follower.date_added.desc(), Follower.username.asc())
         .all()
     )
+    current_followers = [item.username for item in follower_records]
     current_following = [item.username for item in following_records]
     not_following_back, fans, mutuals = cross_reference(current_followers, current_following)
+
+    follower_dates = {item.username.casefold(): item.date_added for item in follower_records}
+    following_dates = {item.username.casefold(): item.date_added for item in following_records}
     not_following_back_set = set(not_following_back)
     not_following_back = [
         item.username for item in following_records
         if item.username in not_following_back_set
     ]
     not_following_back_dates = {
-        item.username: item.date_added for item in following_records
+        item.username.casefold(): item.date_added for item in following_records
         if item.username in not_following_back_set
     }
+
+    fans_dates = {
+        username.casefold(): follower_dates.get(username.casefold())
+        for username in fans
+    }
+    mutuals_dates = {
+        username.casefold(): max(
+            filter(
+                None,
+                (
+                    follower_dates.get(username.casefold()),
+                    following_dates.get(username.casefold()),
+                ),
+            ),
+            default=None,
+        )
+        for username in mutuals
+    }
+    not_following_back = order_usernames_newest_first(not_following_back, not_following_back_dates)
+    fans = order_usernames_newest_first(fans, fans_dates)
+    mutuals = order_usernames_newest_first(mutuals, mutuals_dates)
 
     graph_html = generate_activity_graph(history_logs, kind_filter)
 
     latest_run = (
         AnalysisRun.query.filter_by(user_id=user_id)
         .filter(AnalysisRun.status.in_(("success", "cleanup_failed")))
-        .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.started_at.desc())
+        .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.started_at.desc(), AnalysisRun.id.desc())
         .first()
     )
 
@@ -531,7 +560,11 @@ def dashboard():
                            not_following_back=not_following_back,
                            not_following_back_dates=not_following_back_dates,
                            fans=fans,
+
+                           fans_dates=fans_dates,
                            mutuals=mutuals,
+
+                           mutuals_dates=mutuals_dates,
                            graph_html=graph_html,
                            kpis=kpis,
 
@@ -551,7 +584,7 @@ def processing_history():
     page = request.args.get("page", 1, type=int)
     pagination = (
         AnalysisRun.query.filter_by(user_id=session["user_id"])
-        .order_by(AnalysisRun.started_at.desc())
+        .order_by(AnalysisRun.started_at.desc(), AnalysisRun.id.desc())
         .paginate(page=page, per_page=30, error_out=False)
     )
     for run in pagination.items:

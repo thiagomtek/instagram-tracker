@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -15,6 +16,7 @@ from models.follower import Follower
 from models.history import History
 from models.user import User
 from services.importer import process_import_paths
+from services.storage import load_followers, save_followers
 
 
 def relationship_html(usernames):
@@ -141,6 +143,32 @@ class ImporterTest(unittest.TestCase):
                 zip_file.writestr("../followers_1.html", relationship_html(["ana"]))
             with self.assertRaisesRegex(ValueError, "caminho inválido"):
                 process_import_paths([archive], self.user_id)
+
+    def test_relationship_storage_returns_newest_items_first(self):
+        now = datetime.now()
+        save_followers(
+            "followers",
+            [
+                {"username": "base_antiga", "date": now - timedelta(days=40)},
+                {"username": "base_recente", "date": now - timedelta(days=2)},
+            ],
+            self.user_id,
+        )
+
+        self.assertEqual(load_followers("followers", self.user_id), ["base_recente", "base_antiga"])
+
+        gained, lost = save_followers(
+            "followers",
+            [
+                {"username": "base_antiga", "date": now - timedelta(days=40)},
+                {"username": "nova_antiga", "date": now - timedelta(days=10)},
+                {"username": "nova_recente", "date": now - timedelta(hours=1)},
+            ],
+            self.user_id,
+        )
+
+        self.assertEqual(gained, ["nova_recente", "nova_antiga"])
+        self.assertEqual(lost, ["base_recente"])
 
 
 if __name__ == "__main__":

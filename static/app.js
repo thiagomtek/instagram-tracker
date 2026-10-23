@@ -92,7 +92,9 @@
         if (!dropZone || !fileInput) return;
 
         function updateFileList() {
-            const files = Array.from(fileInput.files);
+            const files = Array.from(fileInput.files).sort((left, right) => {
+                return right.lastModified - left.lastModified || left.name.localeCompare(right.name);
+            });
             fileList.replaceChildren();
             files.forEach((file) => {
                 const item = document.createElement('div');

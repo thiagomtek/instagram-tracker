@@ -1,5 +1,17 @@
+from datetime import datetime
+
 from database import db
 from models.follower import Follower
+
+
+def order_usernames_newest_first(usernames, dates_by_username):
+    """Order usernames by relationship date, using the name only as a tie-breaker."""
+    alphabetized = sorted(usernames, key=str.casefold)
+    return sorted(
+        alphabetized,
+        key=lambda username: dates_by_username.get(username.casefold()) or datetime.min,
+        reverse=True,
+    )
 
 def save_followers(kind, new_data_list, user_id, commit=True):
     """Replace one relationship kind with the current Instagram snapshot.
@@ -11,6 +23,8 @@ def save_followers(kind, new_data_list, user_id, commit=True):
     existing_items = Follower.query.filter_by(user_id=user_id, kind=kind).all()
     existing_by_key = {item.username.casefold(): item for item in existing_items}
     incoming_by_key = {item["username"].casefold(): item for item in new_data_list}
+    existing_dates = {key: item.date_added for key, item in existing_by_key.items()}
+    incoming_dates = {key: item["date"] for key, item in incoming_by_key.items()}
     is_baseline = not existing_items
 
     gained = []
@@ -40,14 +54,17 @@ def save_followers(kind, new_data_list, user_id, commit=True):
 
     if commit:
         db.session.commit()
-    
-    return gained, lost
+
+    return (
+        order_usernames_newest_first(gained, incoming_dates),
+        order_usernames_newest_first(lost, existing_dates),
+    )
 
 def load_followers(kind, user_id):
     """Return the latest exact snapshot for one relationship kind."""
     return [
         item.username
         for item in Follower.query.filter_by(kind=kind, user_id=user_id)
-        .order_by(Follower.username.asc())
+        .order_by(Follower.date_added.desc(), Follower.username.asc())
         .all()
     ]

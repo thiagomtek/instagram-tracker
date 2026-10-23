@@ -133,8 +133,8 @@ def process_import_paths(paths, user_id):
                 summary.followers_found = len(items)
                 summary.followers_gained = len(gained_names)
                 summary.followers_lost = len(lost_names)
-                summary.gained_usernames = sorted(gained_names, key=str.lower)
-                summary.lost_usernames = sorted(lost_names, key=str.lower)
+                summary.gained_usernames = gained_names
+                summary.lost_usernames = lost_names
             else:
                 summary.following_found = len(items)
 

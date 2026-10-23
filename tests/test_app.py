@@ -12,6 +12,7 @@ from app import app
 from database import db
 from models.integration import AnalysisRun, DriveConnection
 from models.follower import Follower
+from models.history import History
 from models.user import User
 
 
@@ -155,6 +156,58 @@ class AppTest(unittest.TestCase):
         self.assertLess(page.index("mais_recente"), page.index("intermediario"))
         self.assertLess(page.index("intermediario"), page.index("mais_antigo"))
         self.assertIn("Do seguido mais recentemente para o mais antigo.", page)
+
+    def test_every_dashboard_list_is_ordered_from_newest_to_oldest(self):
+        now = datetime.now()
+        db.session.add_all(
+            [
+                Follower(user_id=self.user_id, username="fan_antigo", kind="followers", date_added=now - timedelta(days=40)),
+                Follower(user_id=self.user_id, username="fan_recente", kind="followers", date_added=now - timedelta(days=2)),
+                Follower(user_id=self.user_id, username="mutuo_antigo", kind="followers", date_added=now - timedelta(days=30)),
+                Follower(user_id=self.user_id, username="mutuo_antigo", kind="following", date_added=now - timedelta(days=35)),
+                Follower(user_id=self.user_id, username="mutuo_recente", kind="followers", date_added=now - timedelta(days=1)),
+                Follower(user_id=self.user_id, username="mutuo_recente", kind="following", date_added=now - timedelta(days=5)),
+                History(user_id=self.user_id, username="atividade_antiga", action="gained", kind="followers", date_added=now - timedelta(days=3)),
+                History(user_id=self.user_id, username="atividade_recente", action="lost", kind="followers", date_added=now - timedelta(hours=1)),
+            ]
+        )
+        db.session.commit()
+        self.login()
+
+        page = self.client.get("/dashboard").data.decode()
+
+        self.assertLess(page.index("fan_recente"), page.index("fan_antigo"))
+        self.assertLess(page.index("mutuo_recente"), page.index("mutuo_antigo"))
+        self.assertLess(page.index("atividade_recente"), page.index("atividade_antiga"))
+        self.assertIn("Do relacionamento mais recente para o mais antigo.", page)
+        self.assertIn("Do seguidor mais recente para o mais antigo.", page)
+
+    def test_processing_history_is_ordered_from_newest_to_oldest(self):
+        now = datetime.now()
+        db.session.add_all(
+            [
+                AnalysisRun(
+                    user_id=self.user_id,
+                    source="manual",
+                    source_name="processamento-antigo.zip",
+                    status="success",
+                    started_at=now - timedelta(days=2),
+                ),
+                AnalysisRun(
+                    user_id=self.user_id,
+                    source="manual",
+                    source_name="processamento-recente.zip",
+                    status="success",
+                    started_at=now - timedelta(minutes=10),
+                ),
+            ]
+        )
+        db.session.commit()
+        self.login()
+
+        page = self.client.get("/processamentos").data.decode()
+
+        self.assertLess(page.index("processamento-recente.zip"), page.index("processamento-antigo.zip"))
 
     def test_json_api_requires_csrf_header(self):
         self.login()
