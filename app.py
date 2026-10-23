@@ -487,8 +487,22 @@ def dashboard():
     history_logs = query.order_by(History.date_added.desc()).all()
 
     current_followers = load_followers('followers', user_id)
-    current_following = load_followers('following', user_id)
+    following_records = (
+        Follower.query.filter_by(user_id=user_id, kind='following')
+        .order_by(Follower.date_added.desc(), Follower.username.asc())
+        .all()
+    )
+    current_following = [item.username for item in following_records]
     not_following_back, fans, mutuals = cross_reference(current_followers, current_following)
+    not_following_back_set = set(not_following_back)
+    not_following_back = [
+        item.username for item in following_records
+        if item.username in not_following_back_set
+    ]
+    not_following_back_dates = {
+        item.username: item.date_added for item in following_records
+        if item.username in not_following_back_set
+    }
 
     graph_html = generate_activity_graph(history_logs, kind_filter)
 
@@ -515,6 +529,7 @@ def dashboard():
     return render_template("dashboard.html",
                            history_logs=history_logs,
                            not_following_back=not_following_back,
+                           not_following_back_dates=not_following_back_dates,
                            fans=fans,
                            mutuals=mutuals,
                            graph_html=graph_html,

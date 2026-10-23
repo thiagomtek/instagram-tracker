@@ -3,12 +3,15 @@
 {% block title %}Painel · Instagram Tracker{% endblock %}
 
 {% block content %}
-{% macro user_list(users, empty_message) %}
+{% macro user_list(users, empty_message, dates=None) %}
 <div class="relationship-list">
     {% for username in users %}
     <a class="relationship-user" href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">
         <span class="user-initial" style="--avatar-color: {{ username|avatar_color }}">{{ username|initials }}</span>
-        <span>{{ username }}</span>
+        <span class="relationship-user-copy">
+            <strong>{{ username }}</strong>
+            {% if dates and dates.get(username) %}<small>Você começou a seguir em {{ dates.get(username)|format_date }}</small>{% endif %}
+        </span>
         <span class="external-mark" aria-hidden="true">↗</span>
     </a>
     {% else %}
@@ -74,10 +77,10 @@
 
     <details class="relationship-card attention" open>
         <summary>
-            <span><strong>Você segue, mas não seguem você</strong><small>Está em “seguindo”, mas não em “seguidores”.</small></span>
+            <span><strong>Você segue, mas não seguem você</strong><small>Do seguido mais recentemente para o mais antigo.</small></span>
             <span class="count-pill">{{ not_following_back|length }}</span>
         </summary>
-        {{ user_list(not_following_back, 'Ninguém nesta categoria. Ótimo!') }}
+        {{ user_list(not_following_back, 'Ninguém nesta categoria. Ótimo!', not_following_back_dates) }}
     </details>
 
     <details class="relationship-card positive">

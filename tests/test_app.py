@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="instagram-tracker-tests-"))
@@ -135,6 +136,25 @@ class AppTest(unittest.TestCase):
         self.assertIn("estado atual, não todo o seu histórico".encode(), response.data)
         self.assertIn("Você segue, mas não seguem você".encode(), response.data)
         self.assertIn(b"bia", response.data)
+
+    def test_not_following_back_is_ordered_by_most_recent_follow_date(self):
+        now = datetime.now()
+        db.session.add_all(
+            [
+                Follower(user_id=self.user_id, username="mais_antigo", kind="following", date_added=now - timedelta(days=30)),
+                Follower(user_id=self.user_id, username="mais_recente", kind="following", date_added=now - timedelta(days=1)),
+                Follower(user_id=self.user_id, username="intermediario", kind="following", date_added=now - timedelta(days=10)),
+            ]
+        )
+        db.session.commit()
+        self.login()
+
+        response = self.client.get("/dashboard")
+        page = response.data.decode()
+
+        self.assertLess(page.index("mais_recente"), page.index("intermediario"))
+        self.assertLess(page.index("intermediario"), page.index("mais_antigo"))
+        self.assertIn("Do seguido mais recentemente para o mais antigo.", page)
 
     def test_json_api_requires_csrf_header(self):
         self.login()

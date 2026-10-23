@@ -177,6 +177,9 @@ a { color: inherit; }
 .relationship-user { display: flex; min-height: 54px; align-items: center; gap: .75rem; border-bottom: 1px solid rgba(255, 255, 255, .055); color: var(--text); text-decoration: none; font-size: .85rem; font-weight: 700; }
 .relationship-user:last-child { border-bottom: 0; }
 .relationship-user:hover { color: #f6a0b8; }
+.relationship-user-copy { display: flex; min-width: 0; flex-direction: column; gap: .12rem; }
+.relationship-user-copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.relationship-user-copy small { color: var(--muted); font-size: .66rem; font-weight: 500; }
 .user-initial { display: grid; flex: 0 0 34px; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--avatar-color); color: #fff; font-size: .7rem; font-weight: 800; }
 .external-mark { margin-left: auto; color: #777784; font-size: .78rem; }
 .list-empty { padding: 2rem 1rem; color: var(--muted); font-size: .8rem; text-align: center; }
