@@ -16,11 +16,9 @@
     <section class="glass-card automation-card">
         <div class="section-heading">
             <div class="section-icon google-icon" aria-hidden="true">G</div>
-            <div><span class="eyebrow">Automação diária</span><h2>Google Drive</h2></div>
-            {% if drive_connection and drive_connection.folder_id %}
+            <div><span class="eyebrow">Automação a cada 1 hora</span><h2>Google Drive</h2></div>
+            {% if drive_connection %}
                 <span class="status-pill success"><span></span>Ativo</span>
-            {% elif drive_connection %}
-                <span class="status-pill warning"><span></span>Falta a pasta</span>
             {% else %}
                 <span class="status-pill"><span></span>Desconectado</span>
             {% endif %}
@@ -37,24 +35,10 @@
             <div><span class="summary-label">Conta vinculada</span><strong>{{ drive_connection.google_email or 'Conta Google' }}</strong></div>
             <a href="{{ url_for('google_drive_connect') }}" class="text-link">Trocar</a>
         </div>
+        <p class="section-copy mb-0">O Tracker procura automaticamente novas exportações do Instagram a cada 1 hora.</p>
         <div class="inline-notice warning mt-3">Exportações são excluídas permanentemente do Drive somente depois que o resultado é salvo.</div>
 
-        <form action="{{ url_for('google_drive_folder') }}" method="POST" class="folder-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label for="drive-folder">Local das exportações do Instagram</label>
-            <div class="input-action">
-                <input id="drive-folder" name="folder" class="form-control auth-input" inputmode="url" placeholder="Link da pasta ou “root” para Meu Drive" required>
-                <button type="submit" class="btn btn-light">Salvar</button>
-            </div>
-            {% if drive_connection.folder_id %}
-            <small>Pasta atual: <strong>{{ drive_connection.folder_name }}</strong></small>
-            {% else %}
-            <small>Por padrão, o Tracker usa Meu Drive e filtra apenas pastas meta-*.</small>
-            {% endif %}
-        </form>
-
-        {% if drive_connection.folder_id %}
-        <div class="sync-status">
+        <div class="sync-status mt-3">
             <div><span class="summary-label">Última verificação</span><strong>{{ drive_connection.last_checked_at|local_datetime if drive_connection.last_checked_at else 'Aguardando' }}</strong></div>
             <div><span class="summary-label">Última análise</span><strong>{{ drive_connection.last_success_at|local_datetime if drive_connection.last_success_at else 'Ainda não executada' }}</strong></div>
         </div>
@@ -63,7 +47,6 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn btn-soft w-100" type="submit">Verificar agora</button>
         </form>
-        {% endif %}
 
         <details class="danger-zone">
             <summary>Opções da conexão</summary>

@@ -30,7 +30,8 @@ class Config:
     GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
     GOOGLE_TOKEN_ENCRYPTION_KEY = os.environ.get("GOOGLE_TOKEN_ENCRYPTION_KEY", "")
     GOOGLE_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
-    GOOGLE_DRIVE_POLL_SECONDS = max(60, int(os.environ.get("GOOGLE_DRIVE_POLL_SECONDS", "300")))
+    # Product behavior: connected accounts are checked once per hour.
+    GOOGLE_DRIVE_POLL_SECONDS = 60 * 60
     GOOGLE_DRIVE_SETTLE_SECONDS = max(60, int(os.environ.get("GOOGLE_DRIVE_SETTLE_SECONDS", "300")))
     GOOGLE_DRIVE_MAX_ITEMS = int(os.environ.get("GOOGLE_DRIVE_MAX_ITEMS", "10000"))
 

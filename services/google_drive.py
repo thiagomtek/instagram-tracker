@@ -20,6 +20,8 @@ from services.token_crypto import decrypt_token
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DOWNLOADABLE_SUFFIXES = {".html", ".json", ".zip"}
 META_EXPORT_PATTERN = re.compile(r"^meta-\d{4}-[A-Za-z]{3}-\d{1,2}-\d{2}-\d{2}-\d{2}", re.IGNORECASE)
+MONITORED_FOLDER_ID = "root"
+MONITORED_FOLDER_NAME = "Meu Drive (pastas meta-*)"
 
 
 def google_drive_is_configured():
@@ -60,6 +62,16 @@ def list_children(service, folder_id):
         page_token = response.get("nextPageToken")
         if not page_token:
             return files
+
+
+def _meta_export_folders(items):
+    """Select only Instagram's standard top-level export folders."""
+    return [
+        item
+        for item in items
+        if item.get("mimeType") == FOLDER_MIME_TYPE
+        and META_EXPORT_PATTERN.match(item.get("name", ""))
+    ]
 
 
 def _folder_files(service, folder_id, item_limit):
@@ -163,55 +175,34 @@ def _relationship_files(service, export_folder_id, item_limit):
         else:
             pending.extend(item["id"] for item in folders if item["name"].lower() != "files")
 
-    # Fallback supports a custom folder that directly contains relationship files.
+    # Fallback supports a legacy meta-* layout with relationship files at its root.
     return _candidate_files(_folder_files(service, export_folder_id, item_limit))
 
 
-def validate_folder(connection, folder_id):
-    service = drive_service(connection)
-    metadata = service.files().get(
-        fileId=folder_id,
-        fields="id,name,mimeType",
-        supportsAllDrives=True,
-    ).execute()
-    if metadata.get("mimeType") != FOLDER_MIME_TYPE:
-        raise ValueError("O link informado não aponta para uma pasta do Google Drive.")
-    return metadata
-
-
 def sync_connection(connection):
-    if not connection.enabled or not connection.folder_id:
+    if not connection.enabled:
         return []
 
     now = datetime.utcnow()
+    # Instagram delivers exports into meta-* folders in My Drive. Persist the
+    # fixed source as well so older custom-folder connections migrate on their
+    # next automatic or manual check.
+    connection.folder_id = MONITORED_FOLDER_ID
+    connection.folder_name = MONITORED_FOLDER_NAME
     connection.last_checked_at = now
     connection.last_error = None
     db.session.commit()
 
     service = drive_service(connection)
     item_limit = current_app.config["GOOGLE_DRIVE_MAX_ITEMS"]
-    top_level = list_children(service, connection.folder_id)
+    top_level = list_children(service, MONITORED_FOLDER_ID)
     batches = []
-    loose_files = []
 
-    for item in top_level:
-        if item["mimeType"] == FOLDER_MIME_TYPE:
-            if connection.folder_id == "root" and not META_EXPORT_PATTERN.match(item["name"]):
-                continue
-            descendants = _relationship_files(service, item["id"], item_limit)
-            if descendants:
-                modified = max((child.get("modifiedTime", "") for child in descendants), default="")
-                batches.append((modified, item["id"], item["name"], descendants))
-        elif Path(item["name"]).suffix.lower() == ".zip":
-            batches.append((item.get("modifiedTime", ""), item["id"], item["name"], [item]))
-        elif Path(item["name"]).suffix.lower() in {".html", ".json"}:
-            loose_files.append(item)
-
-    if loose_files:
-        modified = max((item.get("modifiedTime", "") for item in loose_files), default="")
-        batches.append(
-            (modified, f"root:{connection.folder_id}", connection.folder_name or "Pasta monitorada", loose_files)
-        )
+    for item in _meta_export_folders(top_level):
+        descendants = _relationship_files(service, item["id"], item_limit)
+        if descendants:
+            modified = max((child.get("modifiedTime", "") for child in descendants), default="")
+            batches.append((modified, item["id"], item["name"], descendants))
 
     imported = []
     for _, source_id, source_name, items in sorted(batches, key=lambda batch: batch[0]):

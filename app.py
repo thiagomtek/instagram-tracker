@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 
 from flask import Flask, Response, flash, jsonify, render_template, request, redirect, session, url_for
 from google_auth_oauthlib.flow import Flow
-from googleapiclient.errors import HttpError
 import requests
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
@@ -24,7 +23,6 @@ from services.google_drive import (
     drive_service,
     google_drive_is_configured,
     sync_connection_safely,
-    validate_folder,
 )
 from services.importer import process_import_paths
 from services.analysis_runs import complete_analysis_run, fail_analysis_run, start_analysis_run
@@ -364,6 +362,8 @@ def google_drive_callback():
             db.session.add(connection)
         connection.encrypted_refresh_token = encrypt_token(credentials.refresh_token)
         connection.google_email = about.get("emailAddress") or about.get("displayName")
+        connection.folder_id = "root"
+        connection.folder_name = "Meu Drive (pastas meta-*)"
         connection.enabled = True
         connection.last_error = None
         db.session.commit()
@@ -379,44 +379,12 @@ def drive_service_from_credentials(credentials):
 
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
-def _extract_drive_folder_id(value):
-    value = value.strip()
-    if value.lower() in {"root", "meu drive", "my drive"}:
-        return "root"
-    match = re.search(r"/folders/([A-Za-z0-9_-]+)", value)
-    if match:
-        return match.group(1)
-    if re.fullmatch(r"[A-Za-z0-9_-]{10,}", value):
-        return value
-    raise ValueError("Cole o link completo da pasta ou informe um ID válido.")
-
-@app.route("/integrations/google/folder", methods=["POST"])
-@login_required
-def google_drive_folder():
-    connection = DriveConnection.query.filter_by(user_id=session["user_id"]).first()
-    if not connection:
-        flash("Vincule uma conta do Google antes de escolher a pasta.", "error")
-        return redirect(url_for("index"))
-    try:
-        folder_id = _extract_drive_folder_id(request.form.get("folder", ""))
-        metadata = validate_folder(connection, folder_id)
-        connection.folder_id = metadata["id"]
-        connection.folder_name = metadata["name"]
-        connection.enabled = True
-        connection.last_error = None
-        db.session.commit()
-        flash(f"A pasta “{metadata['name']}” será monitorada automaticamente.", "success")
-    except (ValueError, HttpError) as exc:
-        db.session.rollback()
-        flash(f"Não foi possível acessar essa pasta: {exc}", "error")
-    return redirect(url_for("index"))
-
 @app.route("/integrations/google/sync", methods=["POST"])
 @login_required
 def google_drive_sync_now():
     connection = DriveConnection.query.filter_by(user_id=session["user_id"]).first()
-    if not connection or not connection.folder_id:
-        flash("Escolha uma pasta do Google Drive primeiro.", "error")
+    if not connection:
+        flash("Vincule uma conta do Google Drive primeiro.", "error")
         return redirect(url_for("index"))
     imported = sync_connection_safely(connection)
     current = db.session.get(DriveConnection, connection.id)
@@ -425,7 +393,7 @@ def google_drive_sync_now():
     elif imported:
         flash(f"Sincronização concluída: {len(imported)} nova(s) exportação(ões) processada(s).", "success")
     else:
-        flash("A pasta está em dia; nenhuma exportação nova foi encontrada.", "success")
+        flash("O Google Drive está em dia; nenhuma exportação nova foi encontrada.", "success")
     return redirect(url_for("index"))
 
 @app.route("/integrations/google/disconnect", methods=["POST"])

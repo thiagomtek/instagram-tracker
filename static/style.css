@@ -98,10 +98,6 @@ a { color: inherit; }
 .connection-summary > div, .sync-status > div { display: flex; min-width: 0; flex-direction: column; gap: .2rem; }
 .connection-summary strong, .sync-status strong { overflow: hidden; text-overflow: ellipsis; font-size: .85rem; }
 .summary-label { color: var(--muted); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-.folder-form { margin: 1.2rem 0; }
-.folder-form label { display: block; margin-bottom: .55rem; font-size: .82rem; font-weight: 700; }
-.folder-form small { display: block; margin-top: .45rem; color: var(--muted); }
-.input-action { display: flex; gap: .55rem; }
 .auth-input, .form-dark {
     min-height: 46px;
     color: var(--text) !important;
@@ -284,7 +280,6 @@ a { color: inherit; }
     .glass-card { border-radius: 18px; }
     .section-heading { align-items: flex-start; }
     .status-pill { margin-top: .2rem; }
-    .input-action { flex-direction: column; }
     .sync-status { flex-direction: column; }
     .privacy-card { grid-template-columns: 1fr; text-align: left; }
     .privacy-card form { grid-column: auto; }

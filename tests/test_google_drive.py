@@ -1,7 +1,13 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from services.google_drive import _delete_processed_source, _has_complete_snapshot, _is_settled, _relationship_files
+from services.google_drive import (
+    _delete_processed_source,
+    _has_complete_snapshot,
+    _is_settled,
+    _meta_export_folders,
+    _relationship_files,
+)
 
 
 class Result:
@@ -41,6 +47,15 @@ def folder(item_id, name):
 
 
 class GoogleDriveTest(unittest.TestCase):
+    def test_only_standard_meta_folders_are_selected_from_my_drive(self):
+        items = [
+            folder("valid", "meta-2026-Oct-23-10-28-47"),
+            folder("custom", "instagram-exports"),
+            {"id": "zip", "name": "meta-export.zip", "mimeType": "application/zip"},
+        ]
+
+        self.assertEqual([item["id"] for item in _meta_export_folders(items)], ["valid"])
+
     def test_follows_meta_export_structure_without_scanning_other_content(self):
         tree = {
             "meta": [folder("instagram", "instagram-tthiago-2026-10-23-code")],

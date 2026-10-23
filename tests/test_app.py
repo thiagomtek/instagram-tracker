@@ -9,7 +9,7 @@ os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 
 from app import app
 from database import db
-from models.integration import AnalysisRun
+from models.integration import AnalysisRun, DriveConnection
 from models.follower import Follower
 from models.user import User
 
@@ -73,6 +73,49 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'manifest.webmanifest', response.data)
         self.assertIn(b'mobile-tab-bar', response.data)
+
+    def test_drive_panel_has_fixed_hourly_schedule_without_folder_picker(self):
+        app.config.update(GOOGLE_CLIENT_ID="client-id", GOOGLE_CLIENT_SECRET="client-secret")
+        db.session.add(
+            DriveConnection(
+                user_id=self.user_id,
+                google_email="review@example.test",
+                encrypted_refresh_token="encrypted-placeholder",
+                folder_id="old-custom-folder",
+                folder_name="Old custom folder",
+            )
+        )
+        db.session.commit()
+        self.login()
+
+        response = self.client.get("/")
+
+        self.assertEqual(app.config["GOOGLE_DRIVE_POLL_SECONDS"], 3600)
+        self.assertIn("Automação a cada 1 hora".encode(), response.data)
+        self.assertIn("automaticamente novas exportações".encode(), response.data)
+        self.assertNotIn("Local das exportações do Instagram".encode(), response.data)
+        self.assertNotIn("Pasta atual".encode(), response.data)
+
+    def test_manual_drive_check_does_not_require_folder_configuration(self):
+        db.session.add(
+            DriveConnection(
+                user_id=self.user_id,
+                encrypted_refresh_token="encrypted-placeholder",
+                folder_id=None,
+                folder_name=None,
+            )
+        )
+        db.session.commit()
+        self.login()
+
+        with patch("app.sync_connection_safely", return_value=[]) as sync:
+            response = self.client.post(
+                "/integrations/google/sync",
+                data={"csrf_token": "test-token"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        sync.assert_called_once()
 
     def test_dashboard_explains_current_snapshot_and_clear_relationships(self):
         db.session.add_all(
