@@ -1,0 +1,12 @@
+flask
+sqlalchemy
+flask_sqlalchemy
+pandas
+plotly
+python-dotenv
+beautifulsoup4
+cryptography
+google-api-python-client
+google-auth-oauthlib
+pywebpush
+requests

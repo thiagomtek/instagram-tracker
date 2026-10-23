@@ -1,0 +1,83 @@
+{% extends 'layout.html' %}
+
+{% block title %}Processamentos · Instagram Tracker{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">Auditoria</span>
+        <h1>Processamentos</h1>
+        <p>Cada importação manual ou automática, com horário e resultado.</p>
+    </div>
+    <a href="{{ url_for('index') }}" class="btn btn-soft">Nova importação</a>
+</section>
+
+<section class="processing-list" aria-label="Histórico de processamentos">
+    {% for run in pagination.items %}
+    <article class="glass-card processing-card">
+        <div class="processing-topline">
+            <div>
+                <div class="processing-source">
+                    <span class="source-icon" aria-hidden="true">{{ 'G' if run.source == 'google_drive' else '⇧' }}</span>
+                    <div>
+                        <strong>{{ 'Google Drive' if run.source == 'google_drive' else 'Importação manual' }}</strong>
+                        <span>{{ run.source_name }}</span>
+                    </div>
+                </div>
+            </div>
+            <span class="run-status {{ run.status }}">
+                {% if run.status == 'success' %}Concluído
+                {% elif run.status == 'cleanup_failed' %}Concluído · arquivo não excluído
+                {% elif run.status == 'failed' %}Falhou
+                {% else %}Processando{% endif %}
+            </span>
+        </div>
+
+        <div class="processing-meta">
+            <span><small>Início</small><strong>{{ run.started_at|local_datetime }}</strong></span>
+            <span><small>Duração</small><strong>{{ run|duration }}</strong></span>
+            <span><small>Arquivos lidos</small><strong>{{ run.files_read }}</strong></span>
+            <span><small>Seguidores no arquivo</small><strong>{{ run.followers_found }}</strong></span>
+        </div>
+
+        <div class="processing-result">
+            <div class="result-number gained"><span>+{{ run.followers_gained }}</span><small>seguidores ganhos</small></div>
+            <div class="result-number lost"><span>-{{ run.followers_lost }}</span><small>seguidores perdidos</small></div>
+        </div>
+
+        {% if run.gained_list or run.lost_list %}
+        <details class="run-details">
+            <summary>Ver perfis alterados</summary>
+            <div class="changed-users-grid">
+                <div>
+                    <strong class="text-success">Ganhos</strong>
+                    {% for username in run.gained_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
+                </div>
+                <div>
+                    <strong class="text-danger">Perdidos</strong>
+                    {% for username in run.lost_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
+                </div>
+            </div>
+        </details>
+        {% endif %}
+
+        {% if run.error %}<div class="inline-notice danger mt-3">{{ run.error }}</div>{% endif %}
+        {% if run.cleanup_error %}<div class="inline-notice warning mt-3">A análise foi salva, mas a origem não pôde ser excluída do Drive: {{ run.cleanup_error }}</div>{% endif %}
+    </article>
+    {% else %}
+    <div class="glass-card empty-history">
+        <div class="section-icon">◷</div>
+        <h2>Nenhum processamento ainda</h2>
+        <p>Quando você importar ou sincronizar uma exportação, o resultado aparecerá aqui.</p>
+    </div>
+    {% endfor %}
+</section>
+
+{% if pagination.pages > 1 %}
+<nav class="pagination-nav" aria-label="Páginas do histórico">
+    {% if pagination.has_prev %}<a class="btn btn-soft" href="{{ url_for('processing_history', page=pagination.prev_num) }}">Anterior</a>{% endif %}
+    <span>Página {{ pagination.page }} de {{ pagination.pages }}</span>
+    {% if pagination.has_next %}<a class="btn btn-soft" href="{{ url_for('processing_history', page=pagination.next_num) }}">Próxima</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

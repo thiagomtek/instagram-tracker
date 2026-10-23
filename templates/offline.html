@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#c72c65">
+    <title>Sem conexão · Instagram Tracker</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="container app-main">
+        <section class="empty-state glass-card">
+            <div class="section-icon">⌁</div>
+            <h1>Você está sem conexão</h1>
+            <p>O painel usa seus dados privados do servidor e precisa de rede para abrir. Assim que a conexão voltar, tente novamente.</p>
+            <button class="btn btn-insta" onclick="window.location.reload()">Tentar novamente</button>
+        </section>
+    </main>
+</body>
+</html>

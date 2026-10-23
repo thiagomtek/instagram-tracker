@@ -1,0 +1,53 @@
+x-tracker-common: &tracker-common
+  build: .
+  restart: unless-stopped
+  environment: &tracker-environment
+    SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+    INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+    INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+    ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+    DATA_DIR: /app/data
+    SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+    SESSION_DAYS: ${SESSION_DAYS:-3650}
+    TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+    GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY:-}
+    GOOGLE_DRIVE_POLL_SECONDS: ${GOOGLE_DRIVE_POLL_SECONDS:-300}
+    GOOGLE_DRIVE_SETTLE_SECONDS: ${GOOGLE_DRIVE_SETTLE_SECONDS:-300}
+    GOOGLE_DRIVE_MAX_ITEMS: ${GOOGLE_DRIVE_MAX_ITEMS:-10000}
+    PUSH_VAPID_PUBLIC_KEY: ${PUSH_VAPID_PUBLIC_KEY:-}
+    PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
+    PUSH_VAPID_SUBJECT: ${PUSH_VAPID_SUBJECT:-}
+    PWA_ID: ${PWA_ID:-/instagram-tracker-pwa}
+    TZ: ${APP_TIMEZONE:-America/Sao_Paulo}
+    APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+  volumes:
+    - tracker-data:/app/data
+    - /etc/localtime:/etc/localtime:ro
+    - /etc/timezone:/etc/timezone:ro
+
+services:
+  instagram-tracker:
+    <<: *tracker-common
+    container_name: instagram-tracker
+    ports:
+      - "${APP_PORT:-8080}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  instagram-tracker-worker:
+    <<: *tracker-common
+    container_name: instagram-tracker-worker
+    command: ["python", "worker.py"]
+    depends_on:
+      instagram-tracker:
+        condition: service_healthy
+
+volumes:
+  tracker-data:

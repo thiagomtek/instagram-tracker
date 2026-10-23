@@ -1,0 +1,11 @@
+.git
+.env
+.venv
+venv
+__pycache__
+*.py[cod]
+*.db
+data.db
+uploads
+data
+.DS_Store

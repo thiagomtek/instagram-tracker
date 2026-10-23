@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#c72c65">
+    <meta name="color-scheme" content="dark">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="push-public-key" content="{{ push_public_key }}">
+    <meta name="description" content="Análises privadas das exportações oficiais do Instagram.">
+    <title>{% block title %}Instagram Tracker{% endblock %}</title>
+    <link rel="manifest" href="{{ url_for('web_manifest') }}">
+    <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="app-header">
+    <div class="container app-header-inner">
+        <a class="app-brand" href="{{ url_for('index') }}" aria-label="Instagram Tracker - início">
+            <img src="{{ url_for('static', filename='icon.svg') }}" alt="" width="36" height="36">
+            <span>Instagram <strong>Tracker</strong></span>
+        </a>
+        {% if session.get('user_id') %}
+        <nav class="desktop-nav" aria-label="Navegação principal">
+            <a class="nav-pill {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Importar</a>
+            <a class="nav-pill {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Painel</a>
+            <a class="nav-pill {% if request.endpoint == 'processing_history' %}active{% endif %}" href="{{ url_for('processing_history') }}">Processamentos</a>
+            <form action="{{ url_for('logout') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="nav-pill nav-button">Sair</button>
+            </form>
+        </nav>
+        {% endif %}
+    </div>
+</header>
+
+<main class="container app-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack" aria-live="polite">
+            {% for category, message in messages %}
+                <div class="alert app-alert alert-{{ 'danger' if category == 'error' else 'success' }}" role="alert">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+</main>
+
+{% if session.get('user_id') %}
+<nav class="mobile-tab-bar" aria-label="Navegação móvel">
+    <a href="{{ url_for('index') }}" class="mobile-tab {% if request.endpoint == 'index' %}active{% endif %}"><span aria-hidden="true">⇧</span><small>Importar</small></a>
+    <a href="{{ url_for('dashboard') }}" class="mobile-tab {% if request.endpoint == 'dashboard' %}active{% endif %}"><span aria-hidden="true">⌁</span><small>Painel</small></a>
+    <a href="{{ url_for('processing_history') }}" class="mobile-tab {% if request.endpoint == 'processing_history' %}active{% endif %}"><span aria-hidden="true">◷</span><small>Histórico</small></a>
+    <form action="{{ url_for('logout') }}" method="POST" class="mobile-tab-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="mobile-tab"><span aria-hidden="true">↪</span><small>Sair</small></button>
+    </form>
+</nav>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
