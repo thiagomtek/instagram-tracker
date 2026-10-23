@@ -972,6 +972,7 @@ def build_validation_progress(user_id):
         "queued": sum(1 for item in validations if item.status in {"queued", "retry"}),
         "running": sum(1 for item in validations if item.status == "running"),
         "items": items,
+        "queue_items": items,
     }
 
 

@@ -10,7 +10,7 @@ os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 
 from app import app
 from database import db
-from models.integration import AnalysisRun, DriveConnection
+from models.integration import AnalysisRun, DriveConnection, RelationshipValidation
 from models.follower import Follower
 from models.history import History
 from models.user import User
@@ -136,6 +136,27 @@ class AppTest(unittest.TestCase):
         self.assertIn("As listas separam perfis presentes e ausentes na exportação atual".encode(), response.data)
         self.assertIn("Você segue, mas não seguem você".encode(), response.data)
         self.assertIn(b"bia", response.data)
+
+    def test_dashboard_renders_with_validation_progress(self):
+        follower = Follower(user_id=self.user_id, username="pedro", kind="followers", is_present=False, state="pending", missing_count=1)
+        db.session.add(follower)
+        db.session.commit()
+        val = RelationshipValidation(
+            user_id=self.user_id,
+            follower_id=follower.id,
+            username="pedro",
+            kind="followers",
+            status="queued",
+            next_attempt_at=datetime.now() + timedelta(minutes=10),
+        )
+        db.session.add(val)
+        db.session.commit()
+        self.login()
+
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Validação assíncrona".encode(), response.data)
+        self.assertIn(b"@pedro", response.data)
 
     def test_not_following_back_is_ordered_by_most_recent_follow_date(self):
         now = datetime.now()

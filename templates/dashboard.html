@@ -57,7 +57,7 @@
         <span id="validationProgressBar" style="width: {{ validation_progress.percent }}%"></span>
     </div>
     <div class="validation-queue" id="validationQueue">
-        {% for item in validation_progress.items %}
+        {% for item in validation_progress.queue_items %}
         <div class="validation-queue-item">
             <strong>@{{ item.username }}</strong>
             <span>{% if item.status == 'running' %}Validando agora{% elif item.status == 'retry' %}Nova tentativa agendada{% elif item.status == 'queued' %}Na fila{% elif item.outcome == 'relationship_removed' %}Relação removida confirmada{% elif item.outcome == 'unavailable' %}Perfil indisponível{% elif item.outcome == 'reappeared' %}Reapareceu{% elif item.outcome == 'exists_waiting_confirmation' %}Existe · aguardando nova exportação{% else %}Concluída{% endif %}</span>
