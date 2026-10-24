@@ -1,12 +1,14 @@
 {% extends 'layout.html' %}
 
+{% block title %}Entrar · Instagram Tracker{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center align-items-center" style="min-height: 76vh;">
     <div class="col-sm-10 col-md-7 col-lg-5">
         <div class="glass-card">
             <div class="text-center mb-4">
-                <div class="login-icon">🔒</div>
-                <h1 class="mb-2 brand-text">Instagram Hub</h1>
+                <div class="login-icon" aria-hidden="true">🔒</div>
+                <h1 class="mb-2 brand-text">Instagram Tracker</h1>
                 <p class="text-secondary mb-0">Entre para acessar seu painel.</p>
             </div>
 
@@ -25,7 +27,7 @@
                 </div>
                 <button type="submit" class="btn btn-insta w-100 py-3">Entrar</button>
             </form>
-            {% if config.ALLOW_REGISTRATION %}
+            {% if registration_open %}
             <p class="text-center text-secondary small mt-4 mb-0">
                 Ainda não tem acesso? <a class="auth-link" href="{{ url_for('register') }}">Criar conta</a>
             </p>
@@ -33,15 +35,4 @@
         </div>
     </div>
 </div>
-<script>
-document.querySelectorAll('[data-password-toggle]').forEach((button) => {
-    button.addEventListener('click', () => {
-        const input = document.getElementById(button.dataset.passwordToggle);
-        const isHidden = input.type === 'password';
-        input.type = isHidden ? 'text' : 'password';
-        button.textContent = isHidden ? 'Ocultar' : 'Mostrar';
-        button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
-    });
-});
-</script>
 {% endblock %}

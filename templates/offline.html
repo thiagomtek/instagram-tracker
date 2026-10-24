@@ -14,8 +14,9 @@
             <div class="section-icon">⌁</div>
             <h1>Você está sem conexão</h1>
             <p>O painel usa seus dados privados do servidor e precisa de rede para abrir. Assim que a conexão voltar, tente novamente.</p>
-            <button class="btn btn-insta" onclick="window.location.reload()">Tentar novamente</button>
+            <button class="btn btn-insta" id="retry" type="button">Tentar novamente</button>
         </section>
     </main>
+    <script>document.getElementById("retry").addEventListener("click", function () { window.location.reload(); });</script>
 </body>
 </html>

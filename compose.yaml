@@ -1,21 +1,29 @@
 x-tracker-common: &tracker-common
   build: .
   restart: unless-stopped
+  init: true
   environment: &tracker-environment
     SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
     INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
     INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
-    ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+    ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
     DATA_DIR: /app/data
     SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
     SESSION_DAYS: ${SESSION_DAYS:-3650}
     TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+    LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+    LOGIN_LOCK_SECONDS: ${LOGIN_LOCK_SECONDS:-900}
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
     GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY:-}
     GOOGLE_DRIVE_SETTLE_SECONDS: ${GOOGLE_DRIVE_SETTLE_SECONDS:-300}
     GOOGLE_DRIVE_MAX_ITEMS: ${GOOGLE_DRIVE_MAX_ITEMS:-10000}
+    GOOGLE_DRIVE_DELETE_MODE: ${GOOGLE_DRIVE_DELETE_MODE:-trash}
+    IMPORT_MASS_DROP_RATIO: ${IMPORT_MASS_DROP_RATIO:-0.3}
+    IMPORT_MASS_DROP_MIN: ${IMPORT_MASS_DROP_MIN:-20}
+    IMPORT_DUPLICATE_WINDOW_HOURS: ${IMPORT_DUPLICATE_WINDOW_HOURS:-12}
+    PROFILE_VALIDATION_ENABLED: ${PROFILE_VALIDATION_ENABLED:-true}
     PROFILE_VALIDATION_INITIAL_MIN_SECONDS: ${PROFILE_VALIDATION_INITIAL_MIN_SECONDS:-1800}
     PROFILE_VALIDATION_INITIAL_MAX_SECONDS: ${PROFILE_VALIDATION_INITIAL_MAX_SECONDS:-10800}
     PROFILE_VALIDATION_GAP_MIN_SECONDS: ${PROFILE_VALIDATION_GAP_MIN_SECONDS:-600}
@@ -23,17 +31,17 @@ x-tracker-common: &tracker-common
     PROFILE_VALIDATION_RETRY_MIN_SECONDS: ${PROFILE_VALIDATION_RETRY_MIN_SECONDS:-21600}
     PROFILE_VALIDATION_RETRY_MAX_SECONDS: ${PROFILE_VALIDATION_RETRY_MAX_SECONDS:-64800}
     PROFILE_VALIDATION_MAX_ATTEMPTS: ${PROFILE_VALIDATION_MAX_ATTEMPTS:-3}
+    PROFILE_VALIDATION_STALE_SECONDS: ${PROFILE_VALIDATION_STALE_SECONDS:-900}
     PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     PUSH_VAPID_PUBLIC_KEY: ${PUSH_VAPID_PUBLIC_KEY:-}
     PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
     PUSH_VAPID_SUBJECT: ${PUSH_VAPID_SUBJECT:-}
     PWA_ID: ${PWA_ID:-/instagram-tracker-pwa}
+    # The timezone comes only from these variables; no host files are mounted.
     TZ: ${APP_TIMEZONE:-America/Sao_Paulo}
     APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
   volumes:
     - tracker-data:/app/data
-    - /etc/localtime:/etc/localtime:ro
-    - /etc/timezone:/etc/timezone:ro
 
 services:
   instagram-tracker:
@@ -55,6 +63,13 @@ services:
     depends_on:
       instagram-tracker:
         condition: service_healthy
+    healthcheck:
+      # The worker touches this file every loop; a stuck worker stops updating it.
+      test: ["CMD", "python", "-c", "import os,time,sys; sys.exit(0 if time.time()-os.path.getmtime('/tmp/worker-heartbeat') < 900 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
 volumes:
   tracker-data:

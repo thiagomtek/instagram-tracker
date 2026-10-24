@@ -12,7 +12,8 @@ from googleapiclient.http import MediaIoBaseDownload
 from database import db
 from models.integration import AnalysisRun, DriveConnection, DriveImport
 from services.analysis_runs import complete_analysis_run, fail_analysis_run, start_analysis_run
-from services.importer import ImportSummary, process_import_paths
+from services.clock import utc_now
+from services.importer import ImportRejected, ImportSummary, process_import_paths
 from services.notifications import send_analysis_notification
 from services.token_crypto import decrypt_token
 
@@ -115,12 +116,12 @@ def _download(service, item, destination):
     return target
 
 
-def _delete_processed_source(service, source_id, items):
-    if source_id.startswith("root:"):
-        for item in items:
-            service.files().delete(fileId=item["id"], supportsAllDrives=True).execute()
-    else:
+def _remove_processed_source(service, source_id):
+    """Trash (default) or permanently delete the processed export folder."""
+    if current_app.config["GOOGLE_DRIVE_DELETE_MODE"] == "delete":
         service.files().delete(fileId=source_id, supportsAllDrives=True).execute()
+    else:
+        service.files().update(fileId=source_id, body={"trashed": True}, supportsAllDrives=True).execute()
 
 
 def _candidate_files(items):
@@ -183,7 +184,7 @@ def sync_connection(connection):
     if not connection.enabled:
         return []
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Instagram delivers exports into meta-* folders in My Drive. Persist the
     # fixed source as well so older custom-folder connections migrate on their
     # next automatic or manual check.
@@ -221,8 +222,8 @@ def sync_connection(connection):
         if already_processed:
             if not already_processed.deleted_at:
                 try:
-                    _delete_processed_source(service, source_id, items)
-                    already_processed.deleted_at = datetime.utcnow()
+                    _remove_processed_source(service, source_id)
+                    already_processed.deleted_at = utc_now()
                     already_processed.deletion_error = None
                     if already_processed.analysis_run_id:
                         previous_run = db.session.get(AnalysisRun, already_processed.analysis_run_id)
@@ -243,6 +244,13 @@ def sync_connection(connection):
             with TemporaryDirectory(prefix="instagram-drive-") as temp_dir:
                 local_paths = [_download(service, item, temp_dir) for item in items]
                 summary = process_import_paths(local_paths, connection.user_id, analysis_run_id=analysis_run.id)
+        except ImportRejected as exc:
+            reason = (
+                f"{exc} (Exportação do Drive: {source_name}.) Importe manualmente com a confirmação "
+                "e depois remova a pasta do Drive para liberar as próximas verificações."
+            ) if exc.needs_confirmation else str(exc)
+            fail_analysis_run(analysis_run.id, reason)
+            raise ValueError(reason) from exc
         except Exception as exc:
             fail_analysis_run(analysis_run.id, exc)
             raise
@@ -256,14 +264,14 @@ def sync_connection(connection):
             summary=summary.to_json(),
         )
         db.session.add(drive_import)
-        connection.last_success_at = datetime.utcnow()
+        connection.last_success_at = utc_now()
         connection.last_import_summary = summary.to_json()
         db.session.commit()
 
         cleanup_error = None
         try:
-            _delete_processed_source(service, source_id, items)
-            drive_import.deleted_at = datetime.utcnow()
+            _remove_processed_source(service, source_id)
+            drive_import.deleted_at = utc_now()
         except Exception as exc:
             cleanup_error = str(exc)[:2000]
             drive_import.deletion_error = cleanup_error
@@ -276,24 +284,18 @@ def sync_connection(connection):
         totals = ImportSummary()
         for summary in imported:
             totals.files_read += summary.files_read
-            if summary.followers_found:
-                totals.followers_found = summary.followers_found
-            if summary.following_found:
-                totals.following_found = summary.following_found
-            totals.gained += summary.gained
-            totals.lost += summary.lost
-            totals.reappeared += summary.reappeared
-            totals.followed_again += getattr(summary, "followed_again", 0)
-            totals.followers_gained += summary.followers_gained
-            totals.followers_lost += summary.followers_lost
-            totals.followers_missing += summary.followers_missing
-            totals.followers_reappeared += summary.followers_reappeared
-            totals.followers_followed_again += getattr(summary, "followers_followed_again", 0)
-            totals.validation_total += summary.validation_total
+            totals.followers_found = summary.followers_found or totals.followers_found
+            totals.following_found = summary.following_found or totals.following_found
+            for name in (
+                "gained", "reappeared", "followed_again", "followers_gained", "followers_lost",
+                "followers_missing", "followers_reappeared", "followers_followed_again",
+                "recent_unfollows", "validation_total", "validation_completed",
+            ):
+                setattr(totals, name, getattr(totals, name) + getattr(summary, name))
             totals.gained_usernames.extend(summary.gained_usernames)
-            totals.lost_usernames.extend(summary.lost_usernames)
+            totals.missing_usernames.extend(summary.missing_usernames)
             totals.reappeared_usernames.extend(summary.reappeared_usernames)
-            totals.followed_again_usernames.extend(getattr(summary, "followed_again_usernames", []))
+            totals.followed_again_usernames.extend(summary.followed_again_usernames)
         send_analysis_notification(connection.user_id, totals)
     return imported
 
@@ -305,16 +307,21 @@ def sync_connection_safely(connection):
         db.session.rollback()
         current = db.session.get(DriveConnection, connection.id)
         if current:
-            current.last_checked_at = datetime.utcnow()
+            current.last_checked_at = utc_now()
             current.last_error = str(exc)[:2000]
             db.session.commit()
         current_app.logger.exception("Falha ao sincronizar a conexão %s", connection.id)
         return []
 
 
-def sync_all_connections():
-    connection_ids = [row.id for row in DriveConnection.query.filter_by(enabled=True).all()]
-    for connection_id in connection_ids:
+def sync_all_connections(only_requested=False):
+    """Sync every enabled connection, or only those the user asked to check now."""
+    query = DriveConnection.query.filter_by(enabled=True)
+    if only_requested:
+        query = query.filter_by(sync_requested=True)
+    for connection_id in [row.id for row in query.all()]:
         connection = db.session.get(DriveConnection, connection_id)
         if connection:
+            connection.sync_requested = False
+            db.session.commit()
             sync_connection_safely(connection)

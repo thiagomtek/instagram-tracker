@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from database import db
+from services.clock import utc_now
 
 
 class DriveConnection(db.Model):
@@ -11,11 +10,13 @@ class DriveConnection(db.Model):
     folder_id = db.Column(db.String(255), nullable=True)
     folder_name = db.Column(db.String(512), nullable=True)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
-    connected_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    connected_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     last_checked_at = db.Column(db.DateTime, nullable=True)
     last_success_at = db.Column(db.DateTime, nullable=True)
     last_error = db.Column(db.Text, nullable=True)
     last_import_summary = db.Column(db.Text, nullable=True)
+    # Set by the web app; the worker runs the sync and clears it.
+    sync_requested = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class DriveImport(db.Model):
@@ -25,7 +26,7 @@ class DriveImport(db.Model):
     source_version = db.Column(db.String(128), nullable=False)
     source_name = db.Column(db.String(512), nullable=False)
     analysis_run_id = db.Column(db.Integer, db.ForeignKey("analysis_run.id"), nullable=True)
-    processed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     summary = db.Column(db.Text, nullable=True)
     deleted_at = db.Column(db.DateTime, nullable=True)
     deletion_error = db.Column(db.Text, nullable=True)
@@ -41,7 +42,7 @@ class PushSubscription(db.Model):
     endpoint = db.Column(db.Text, nullable=False, unique=True)
     p256dh = db.Column(db.Text, nullable=False)
     auth = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 
 class AnalysisRun(db.Model):
@@ -50,7 +51,7 @@ class AnalysisRun(db.Model):
     source = db.Column(db.String(32), nullable=False)
     source_name = db.Column(db.String(512), nullable=False)
     status = db.Column(db.String(32), nullable=False, default="processing")
-    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     completed_at = db.Column(db.DateTime, nullable=True)
     files_read = db.Column(db.Integer, nullable=False, default=0)
     followers_found = db.Column(db.Integer, nullable=False, default=0)
@@ -63,6 +64,8 @@ class AnalysisRun(db.Model):
     validation_total = db.Column(db.Integer, nullable=False, default=0)
     validation_completed = db.Column(db.Integer, nullable=False, default=0)
     gained_usernames = db.Column(db.Text, nullable=True)
+    # Historical column name: it stores the usernames that went missing
+    # (awaiting validation), not confirmed removals.
     lost_usernames = db.Column(db.Text, nullable=True)
     reappeared_usernames = db.Column(db.Text, nullable=True)
     followed_again_usernames = db.Column(db.Text, nullable=True)
@@ -71,11 +74,13 @@ class AnalysisRun(db.Model):
 
 
 class RelationshipValidation(db.Model):
+    """A scheduled check of a missing profile. All timestamps are naive UTC."""
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
     analysis_run_id = db.Column(db.Integer, db.ForeignKey("analysis_run.id"), nullable=True, index=True)
     follower_id = db.Column(db.Integer, db.ForeignKey("follower.id"), nullable=False, index=True)
-    username = db.Column(db.String, nullable=False)
+    username = db.Column(db.String(255), nullable=False)
     kind = db.Column(db.String(32), nullable=False)
     status = db.Column(db.String(32), nullable=False, default="queued", index=True)
     outcome = db.Column(db.String(64), nullable=True)
@@ -87,4 +92,4 @@ class RelationshipValidation(db.Model):
     notification_sent_at = db.Column(db.DateTime, nullable=True)
     details = db.Column(db.Text, nullable=True)
     error = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)

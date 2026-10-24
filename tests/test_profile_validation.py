@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 from app import app
@@ -8,11 +8,14 @@ from models.follower import Follower
 from models.history import History
 from models.integration import AnalysisRun, RelationshipValidation
 from models.user import User
+from services.clock import local_now, utc_now
 from services.profile_validation import (
     ProfileCheck,
     cancel_relationship_validations,
     enqueue_relationship_validation,
     process_next_validation,
+    recover_stale_validations,
+    resolve_existing_profile,
 )
 
 
@@ -20,7 +23,6 @@ class ProfileValidationTest(unittest.TestCase):
     def setUp(self):
         self.app = app
         self.app.config["TESTING"] = True
-        self.app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
         self.app.config["PROFILE_VALIDATION_MAX_ATTEMPTS"] = 2
         self.app.config["PROFILE_VALIDATION_INITIAL_MIN_SECONDS"] = 60
         self.app.config["PROFILE_VALIDATION_INITIAL_MAX_SECONDS"] = 120
@@ -105,13 +107,13 @@ class ProfileValidationTest(unittest.TestCase):
             is_present=False,
             state="pending",
             missing_count=2,
-            missing_since=datetime.now() - timedelta(days=5),
+            missing_since=local_now() - timedelta(days=5),
         )
         db.session.add(follower)
         db.session.commit()
 
         val, _ = enqueue_relationship_validation(follower, analysis_run_id=run.id)
-        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        val.next_attempt_at = utc_now() - timedelta(minutes=1)
         db.session.commit()
 
         processed = process_next_validation()
@@ -152,13 +154,13 @@ class ProfileValidationTest(unittest.TestCase):
             is_present=False,
             state="pending",
             missing_count=1,
-            missing_since=datetime.now(),
+            missing_since=local_now(),
         )
         db.session.add(follower)
         db.session.commit()
 
         val, _ = enqueue_relationship_validation(follower, analysis_run_id=run.id)
-        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        val.next_attempt_at = utc_now() - timedelta(minutes=1)
         db.session.commit()
 
         processed = process_next_validation()
@@ -185,13 +187,13 @@ class ProfileValidationTest(unittest.TestCase):
             state="pending",
             missing_count=1,
             retest_count=0,
-            missing_since=datetime.now(),
+            missing_since=local_now(),
         )
         db.session.add(follower)
         db.session.commit()
 
         val, _ = enqueue_relationship_validation(follower)
-        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        val.next_attempt_at = utc_now() - timedelta(minutes=1)
         db.session.commit()
 
         # Attempt 1: marks retry and retest_count = 1
@@ -204,7 +206,7 @@ class ProfileValidationTest(unittest.TestCase):
         self.assertEqual(follower.retest_count, 1)
 
         # Attempt 2 (the 1 allowed retest): profile still unavailable -> becomes untestable
-        val.next_attempt_at = datetime.now() - timedelta(minutes=1)
+        val.next_attempt_at = utc_now() - timedelta(minutes=1)
         db.session.commit()
         processed = process_next_validation()
         self.assertTrue(processed)
@@ -213,3 +215,57 @@ class ProfileValidationTest(unittest.TestCase):
         self.assertEqual(val.status, "completed")
         self.assertEqual(val.outcome, "untestable")
         self.assertEqual(follower.state, "untestable")
+
+    def test_stale_running_validation_is_requeued_after_worker_crash(self):
+        follower = Follower(
+            user_id=self.user_id, username="travado", kind="followers",
+            is_present=False, state="pending", missing_count=1, missing_since=local_now(),
+        )
+        db.session.add(follower)
+        db.session.commit()
+        val, _ = enqueue_relationship_validation(follower)
+        val.status = "running"
+        val.attempts = 1
+        val.last_attempt_at = utc_now() - timedelta(hours=2)
+        follower.validation_status = "verifying"
+        db.session.commit()
+
+        recovered = recover_stale_validations(utc_now())
+
+        db.session.refresh(val)
+        db.session.refresh(follower)
+        self.assertEqual(recovered, 1)
+        self.assertEqual(val.status, "retry")
+        self.assertLessEqual(val.next_attempt_at, utc_now())
+        self.assertEqual(follower.validation_status, "queued")
+
+    def test_recent_running_validation_is_left_alone(self):
+        follower = Follower(user_id=self.user_id, username="ativo", kind="followers", is_present=False, state="pending")
+        db.session.add(follower)
+        db.session.commit()
+        val, _ = enqueue_relationship_validation(follower)
+        val.status = "running"
+        val.last_attempt_at = utc_now() - timedelta(minutes=1)
+        db.session.commit()
+
+        self.assertEqual(recover_stale_validations(utc_now()), 0)
+
+    def test_resolve_existing_profile_applies_two_export_rule_once(self):
+        follower = Follower(
+            user_id=self.user_id, username="ana", kind="followers", is_present=False,
+            state="pending", missing_count=1, missing_since=local_now() - timedelta(days=3),
+        )
+        db.session.add(follower)
+        db.session.commit()
+
+        outcome, newly_lost = resolve_existing_profile(follower, local_now())
+        self.assertEqual((outcome, newly_lost, follower.state), ("exists_waiting_confirmation", False, "pending"))
+
+        follower.missing_count = 2
+        outcome, newly_lost = resolve_existing_profile(follower, local_now())
+        self.assertEqual((outcome, newly_lost, follower.state), ("relationship_removed", True, "removed"))
+        db.session.commit()
+
+        outcome, newly_lost = resolve_existing_profile(follower, local_now())
+        self.assertEqual((outcome, newly_lost), ("relationship_removed", False))
+        self.assertEqual(History.query.filter_by(user_id=self.user_id, action="lost").count(), 1)

@@ -1,0 +1,54 @@
+{% extends 'layout.html' %}
+
+{% block title %}Conta · Instagram Tracker{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">Segurança</span>
+        <h1>Sua conta</h1>
+        <p>{{ g.user.email }}</p>
+    </div>
+</section>
+
+<div class="content-grid account-grid">
+    <section class="glass-card">
+        <div class="section-heading compact"><div><span class="eyebrow">Acesso</span><h2>Alterar senha</h2></div></div>
+        <p class="section-copy">Ao trocar a senha, todos os outros dispositivos conectados são desconectados.</p>
+        <form method="POST" action="{{ url_for('change_password') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="mb-3">
+                <label for="current_password" class="form-label">Senha atual</label>
+                <input type="password" class="form-control auth-input" id="current_password" name="current_password" autocomplete="current-password" required>
+            </div>
+            <div class="mb-3">
+                <label for="new_password" class="form-label">Nova senha</label>
+                <input type="password" class="form-control auth-input" id="new_password" name="new_password" autocomplete="new-password" minlength="{{ min_password_length }}" required>
+                <div class="form-text text-secondary">Pelo menos {{ min_password_length }} caracteres.</div>
+            </div>
+            <div class="mb-4">
+                <label for="new_password_confirmation" class="form-label">Confirmar nova senha</label>
+                <input type="password" class="form-control auth-input" id="new_password_confirmation" name="new_password_confirmation" autocomplete="new-password" minlength="{{ min_password_length }}" required>
+            </div>
+            <button type="submit" class="btn btn-insta w-100">Alterar senha</button>
+        </form>
+    </section>
+
+    <section class="glass-card">
+        <div class="section-heading compact"><div><span class="eyebrow">Zona de risco</span><h2>Excluir conta</h2></div></div>
+        <p class="section-copy">Apaga sua conta, listas, históricos, notificações e o vínculo com o Google Drive. Não há como desfazer.</p>
+        <form method="POST" action="{{ url_for('delete_account') }}" data-confirm="Excluir definitivamente sua conta e todos os dados?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="mb-3">
+                <label for="delete_password" class="form-label">Senha</label>
+                <input type="password" class="form-control auth-input" id="delete_password" name="password" autocomplete="current-password" required>
+            </div>
+            <div class="mb-4">
+                <label for="delete_confirmation" class="form-label">Digite EXCLUIR para confirmar</label>
+                <input type="text" class="form-control auth-input" id="delete_confirmation" name="confirmation" autocomplete="off" required>
+            </div>
+            <button type="submit" class="btn btn-outline-danger w-100">Excluir minha conta</button>
+        </form>
+    </section>
+</div>
+{% endblock %}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'instagram-tracker-shell-v2';
+const CACHE_NAME = 'instagram-tracker-shell-v3';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const OFFLINE_URL = `${APP_ROOT}offline`;
 
@@ -6,7 +6,6 @@ self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll([
         OFFLINE_URL,
         `${APP_ROOT}static/style.css`,
-        `${APP_ROOT}static/app.js`,
         `${APP_ROOT}static/icon.svg`
     ])));
     self.skipWaiting();
@@ -20,6 +19,21 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Static files: always try the network (they are versioned by modification time),
+// keep the last good copy for offline use.
+async function networkFirst(request) {
+    const cache = await caches.open(CACHE_NAME);
+    try {
+        const response = await fetch(request);
+        if (response.ok) cache.put(request, response.clone());
+        return response;
+    } catch (error) {
+        const cached = await cache.match(request, {ignoreSearch: true});
+        if (cached) return cached;
+        throw error;
+    }
+}
+
 self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     const requestUrl = new URL(event.request.url);
@@ -28,8 +42,8 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
         return;
     }
-    if (requestUrl.pathname.includes('/static/')) {
-        event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+    if (requestUrl.pathname.startsWith(`${APP_ROOT}static/`)) {
+        event.respondWith(networkFirst(event.request));
     }
 });
 
@@ -38,8 +52,8 @@ self.addEventListener('push', (event) => {
     try { payload = event.data ? event.data.json() : {}; } catch (_error) { payload = {}; }
     event.waitUntil(self.registration.showNotification(payload.title || 'Instagram Tracker', {
         body: payload.body || 'Uma nova análise foi concluída.',
-        icon: `${APP_ROOT}static/icon.svg`,
-        badge: `${APP_ROOT}static/icon.svg`,
+        icon: `${APP_ROOT}static/icon-192.png`,
+        badge: `${APP_ROOT}static/icon-192.png`,
         tag: payload.tag || 'instagram-tracker',
         data: {url: payload.url || ''}
     }));

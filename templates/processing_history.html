@@ -1,4 +1,5 @@
 {% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
 
 {% block title %}Processamentos · Instagram Tracker{% endblock %}
 
@@ -6,7 +7,7 @@
 <section class="page-heading">
     <div>
         <span class="eyebrow">Auditoria</span>
-        <h1>Processamentos</h1>
+        <h1>Histórico de processamentos</h1>
         <p>Cada importação manual ou automática, com horário e resultado.</p>
     </div>
     <a href="{{ url_for('index') }}" class="btn btn-soft">Nova importação</a>
@@ -36,8 +37,8 @@
         {% if run.validation_total %}
         <div class="run-validation-progress">
             <div><strong>Validação de perfis</strong><span>{{ run.validation_completed }} de {{ run.validation_total }} concluídas · {{ run.validation_percent }}%</span></div>
-            <div class="validation-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ run.validation_percent }}"><span style="width: {{ run.validation_percent }}%"></span></div>
-            {% if run.validation_completed < run.validation_total %}<small>{% if run.next_attempt_formatted %}<i class="fa-solid fa-clock"></i> Próxima averiguação prevista às {{ run.next_attempt_formatted }} · {% endif %}Em segundo plano, uma consulta por vez e com intervalos variados.</small>{% else %}<small>Validação finalizada e notificação enviada.</small>{% endif %}
+            <div class="validation-progress-track" role="progressbar" aria-label="Progresso da validação" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ run.validation_percent }}"><span style="width: {{ run.validation_percent }}%"></span></div>
+            {% if run.validation_completed < run.validation_total %}<small>{% if run.next_attempt_formatted %}{{ icon('clock', 14) }} Próxima averiguação prevista às {{ run.next_attempt_formatted }} · {% endif %}Em segundo plano, uma consulta por vez e com intervalos variados.</small>{% else %}<small>Validação finalizada e notificação enviada.</small>{% endif %}
         </div>
         {% endif %}
 
@@ -58,7 +59,7 @@
             {% endif %}
         </div>
 
-        {% if run.gained_list or run.lost_list or run.confirmed_list or run.reappeared_list or run.followed_again_list %}
+        {% if run.gained_list or run.missing_list or run.confirmed_list or run.reappeared_list or run.followed_again_list %}
         <details class="run-details">
             <summary>Ver perfis alterados</summary>
             <div class="changed-users-grid">
@@ -68,7 +69,7 @@
                 </div>
                 <div>
                     <strong class="text-warning">Aguardando validação</strong>
-                    {% for username in run.lost_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
+                    {% for username in run.missing_list %}<a href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">@{{ username }}</a>{% else %}<span>Nenhum</span>{% endfor %}
                 </div>
                 <div>
                     <strong class="text-danger">Remoções confirmadas</strong>

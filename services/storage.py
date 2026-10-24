@@ -2,6 +2,7 @@ from datetime import datetime
 
 from database import db
 from models.follower import Follower
+from services.clock import local_now
 from services.profile_validation import cancel_relationship_validations
 
 
@@ -17,20 +18,23 @@ def order_usernames_newest_first(usernames, dates_by_username):
         reverse=True,
     )
 
+
 def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
     """Replace one relationship kind with the current Instagram snapshot.
 
     Dates inside Instagram's export are when each relationship started, not a
     boundary for a partial list. An all-time export can contain very old dates
     while still representing the exact relationships that are current today.
+    Items whose date could not be parsed keep their stored date (or the
+    observation time when new).
     """
     existing_items = Follower.query.filter_by(user_id=user_id, kind=kind).all()
     existing_by_key = {item.username.casefold(): item for item in existing_items}
     incoming_by_key = {item["username"].casefold(): item for item in new_data_list}
+    observed_at = observed_at or local_now()
     existing_dates = {key: item.date_added for key, item in existing_by_key.items()}
-    incoming_dates = {key: item["date"] for key, item in incoming_by_key.items()}
+    incoming_dates = {key: item["date"] or observed_at for key, item in incoming_by_key.items()}
     is_baseline = not existing_items
-    observed_at = observed_at or datetime.now()
 
     gained = []
     missing = []
@@ -45,20 +49,21 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
                     user_id=user_id,
                     username=item["username"],
                     kind=kind,
-                    date_added=item["date"],
+                    date_added=incoming_dates[key],
                 )
             )
             if not is_baseline:
                 gained.append(item["username"])
         else:
             if not existing.is_present:
-                cancel_relationship_validations(existing, observed_at)
+                cancel_relationship_validations(existing)
                 if existing.state == "removed":
                     followed_again.append(item["username"])
                 else:
                     reappeared.append(item["username"])
             existing.username = item["username"]
-            existing.date_added = item["date"]
+            if item["date"]:
+                existing.date_added = item["date"]
             existing.is_present = True
             existing.missing_since = None
             existing.state = "present"
@@ -78,7 +83,7 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
             follower.retest_count = 0
             follower.validation_status = "idle"
             missing.append(follower.username)
-        else:
+        elif follower.state not in ("removed",):
             follower.missing_count += 1
 
     if commit:
@@ -90,6 +95,7 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
         order_usernames_newest_first(reappeared, incoming_dates),
         order_usernames_newest_first(followed_again, incoming_dates),
     )
+
 
 def load_followers(kind, user_id):
     """Return the latest exact snapshot for one relationship kind."""

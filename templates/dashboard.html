@@ -1,4 +1,5 @@
 {% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
 
 {% block title %}Painel · Instagram Tracker{% endblock %}
 
@@ -44,25 +45,29 @@
 </div>
 
 {% if validation_progress.total %}
-<section class="glass-card validation-progress" id="validationProgress" data-status-url="{{ url_for('validation_status') }}">
+<section class="glass-card validation-progress" id="validationProgress" data-status-url="{{ url_for('validation_status') }}" data-completed="{{ validation_progress.completed }}" data-active="{{ 'true' if validation_progress.active else 'false' }}">
     <div class="validation-progress-heading">
         <div>
             <span class="eyebrow">Validação assíncrona</span>
             <h2>Verificação de perfis</h2>
             <p id="validationProgressText">{{ validation_progress.completed }} de {{ validation_progress.total }} concluídas · {{ validation_progress.queued }} na fila{% if validation_progress.running %} · {{ validation_progress.running }} em validação{% endif %}</p>
             {% if validation_progress.next_attempt_formatted and (validation_progress.queued or validation_progress.running) %}
-            <span class="validation-next-time" id="validationNextTime"><i class="fa-solid fa-clock"></i> Próxima averiguação prevista às {{ validation_progress.next_attempt_formatted }}</span>
+            <span class="validation-next-time" id="validationNextTime">{{ icon('clock', 14) }} Próxima averiguação prevista às {{ validation_progress.next_attempt_formatted }}</span>
             {% else %}
-            <span class="validation-next-time" id="validationNextTime" style="display: none;"></span>
+            <span class="validation-next-time" id="validationNextTime" hidden></span>
             {% endif %}
         </div>
         <strong id="validationProgressPercent">{{ validation_progress.percent }}%</strong>
     </div>
-    <div class="validation-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ validation_progress.percent }}">
+    <div class="validation-progress-track" role="progressbar" aria-label="Progresso da verificação de perfis" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ validation_progress.percent }}">
         <span id="validationProgressBar" style="width: {{ validation_progress.percent }}%"></span>
     </div>
+    <div class="refresh-banner" id="validationRefresh" hidden>
+        <span>Há novos resultados de validação.</span>
+        <button type="button" class="btn btn-soft" onclick="window.location.reload()">Atualizar painel</button>
+    </div>
     <div class="validation-queue" id="validationQueue">
-        {% for item in validation_progress.queue_items %}
+        {% for item in validation_progress['items'] %}
         <div class="validation-queue-item">
             <div class="validation-item-header">
                 <strong>@{{ item.username }}</strong>
@@ -110,7 +115,7 @@
             <span class="eyebrow">Comparação atual</span>
             <h2 id="relationships-title">Quem está em cada lista</h2>
         </div>
-        <span class="section-hint">Toque em uma categoria para abrir</span>
+        <span class="section-hint">Clique ou toque em uma categoria para abrir</span>
     </div>
 
     <details class="relationship-card attention" open>
@@ -162,6 +167,16 @@
         </summary>
         {{ user_list(absent_following_only, 'Nenhum perfil ausente nesta lista.', absent_following_only_dates, 'Ausente desde') }}
     </details>
+
+    {% if unavailable %}
+    <details class="relationship-card missing">
+        <summary>
+            <span><strong>Perfis indisponíveis</strong><small>Continuaram indisponíveis no Instagram após um reteste: a conta pode ter sido excluída, desativada ou ter bloqueado você.</small></span>
+            <span class="count-pill">{{ unavailable|length }}</span>
+        </summary>
+        {{ user_list(unavailable, 'Nenhum perfil indisponível.', unavailable_dates, 'Verificado em') }}
+    </details>
+    {% endif %}
 </section>
 
 <section class="activity-section" aria-labelledby="activity-title">
@@ -174,6 +189,7 @@
     </div>
 
     <form action="{{ url_for('dashboard') }}" method="GET" class="filter-panel">
+        <p class="filter-hint">Deixe “De” ou “Até” em branco para não limitar o período.</p>
         <div class="filter-field filter-kind">
             <label for="kind">Quero analisar</label>
             <select id="kind" name="kind" class="form-select form-dark">
@@ -220,13 +236,14 @@
     </div>
 
     <div class="glass-card chart-card">
+        <script src="{{ url_for('plotly_js', v=plotly_version) }}"></script>
         {{ graph_html|safe }}
     </div>
 
     <div class="glass-card activity-card">
         <div class="card-heading-inline">
             <div><span class="eyebrow">Detalhes</span><h3>Perfis encontrados</h3></div>
-            <span>{{ history_logs|length }} registro{{ '' if history_logs|length == 1 else 's' }}</span>
+            <span>{% if history_truncated %}Mostrando os {{ history_logs|length }} mais recentes de {{ history_total }}{% else %}{{ history_total }} registro{{ '' if history_total == 1 else 's' }}{% endif %}</span>
         </div>
         <div class="activity-list">
             {% for log in history_logs %}

@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
+from flask import Flask
+
 from services.google_drive import (
-    _delete_processed_source,
+    _remove_processed_source,
     _has_complete_snapshot,
     _is_settled,
     _meta_export_folders,
@@ -23,6 +25,7 @@ class FakeFiles:
         self.tree = tree
         self.listed = []
         self.deleted = []
+        self.trashed = []
 
     def list(self, q, **_kwargs):
         folder_id = q.split("'")[1]
@@ -31,6 +34,10 @@ class FakeFiles:
 
     def delete(self, fileId, **_kwargs):
         self.deleted.append(fileId)
+        return Result()
+
+    def update(self, fileId, body, **_kwargs):
+        self.trashed.append((fileId, body))
         return Result()
 
 
@@ -73,16 +80,23 @@ class GoogleDriveTest(unittest.TestCase):
         self.assertNotIn("assets", service.api.listed)
         self.assertNotIn("media", service.api.listed)
 
-    def test_deletes_whole_export_folder_after_processing(self):
+    def _remove(self, mode):
+        flask_app = Flask(__name__)
+        flask_app.config["GOOGLE_DRIVE_DELETE_MODE"] = mode
         service = FakeService()
-        _delete_processed_source(service, "meta-folder-id", [])
-        self.assertEqual(service.api.deleted, ["meta-folder-id"])
+        with flask_app.app_context():
+            _remove_processed_source(service, "meta-folder-id")
+        return service.api
 
-    def test_deletes_loose_files_but_never_the_monitored_root(self):
-        service = FakeService()
-        items = [{"id": "one"}, {"id": "two"}]
-        _delete_processed_source(service, "root:root", items)
-        self.assertEqual(service.api.deleted, ["one", "two"])
+    def test_processed_export_goes_to_trash_by_default(self):
+        api = self._remove("trash")
+        self.assertEqual(api.trashed, [("meta-folder-id", {"trashed": True})])
+        self.assertEqual(api.deleted, [])
+
+    def test_permanent_delete_only_when_configured(self):
+        api = self._remove("delete")
+        self.assertEqual(api.deleted, ["meta-folder-id"])
+        self.assertEqual(api.trashed, [])
 
     def test_waits_for_complete_stable_export(self):
         recent = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

@@ -1,6 +1,7 @@
 (function () {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const publicKey = document.querySelector('meta[name="push-public-key"]')?.content || '';
+    const POLL_INTERVAL_MS = 15000;
     let serviceWorkerRegistration;
 
     function urlBase64ToUint8Array(value) {
@@ -85,11 +86,12 @@
     }
 
     function setupUpload() {
+        const form = document.getElementById('uploadForm');
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
         const submit = document.getElementById('uploadButton');
-        if (!dropZone || !fileInput) return;
+        if (!form || !dropZone || !fileInput) return;
 
         function updateFileList() {
             const files = Array.from(fileInput.files).sort((left, right) => {
@@ -117,27 +119,60 @@
             updateFileList();
         });
         fileInput.addEventListener('change', updateFileList);
+
+        // A double submit would import the same snapshot twice.
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.submitting === 'true') {
+                event.preventDefault();
+                return;
+            }
+            form.dataset.submitting = 'true';
+            submit.disabled = true;
+            submit.setAttribute('aria-busy', 'true');
+            submit.textContent = 'Analisando… não feche esta página';
+        });
     }
 
-    function validationLabel(item) {
-        if (item.status === 'running') return 'Validando agora';
-        if (item.status === 'retry') return 'Nova tentativa agendada';
-        if (item.status === 'queued') return 'Na fila';
-        if (item.outcome === 'relationship_removed') return 'Relação removida confirmada';
-        if (item.outcome === 'unavailable') return 'Perfil indisponível';
-        if (item.outcome === 'reappeared') return 'Reapareceu';
-        if (item.outcome === 'exists_waiting_confirmation') return 'Existe · aguardando nova exportação';
-        if (item.outcome === 'inconclusive') return 'Verificação inconclusiva';
-        return 'Concluída';
+    function setupPasswordToggles() {
+        document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const input = document.getElementById(button.dataset.passwordToggle);
+                const isHidden = input.type === 'password';
+                input.type = isHidden ? 'text' : 'password';
+                button.textContent = isHidden ? 'Ocultar' : 'Mostrar';
+                button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+            });
+        });
     }
 
-    function renderValidationProgress(data) {
-        const card = document.getElementById('validationProgress');
-        if (!card) return;
+    function setupConfirmations() {
+        document.querySelectorAll('form[data-confirm]').forEach((form) => {
+            form.addEventListener('submit', (event) => {
+                if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+            });
+        });
+    }
+
+    function clockIcon() {
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        for (const [name, value] of Object.entries({
+            class: 'icon', width: '14', height: '14', viewBox: '0 0 24 24', fill: 'none',
+            stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round',
+            'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false'
+        })) svg.setAttribute(name, value);
+        const circle = document.createElementNS(ns, 'circle');
+        circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '9');
+        const hands = document.createElementNS(ns, 'path');
+        hands.setAttribute('d', 'M12 7v5l3 2');
+        svg.append(circle, hands);
+        return svg;
+    }
+
+    function renderValidationProgress(card, data) {
         const progressText = document.getElementById('validationProgressText');
         const percent = document.getElementById('validationProgressPercent');
         const bar = document.getElementById('validationProgressBar');
-        const track = bar?.parentElement;
         const queue = document.getElementById('validationQueue');
         const nextTimeEl = document.getElementById('validationNextTime');
 
@@ -145,62 +180,86 @@
             progressText.textContent = `${data.completed} de ${data.total} concluídas · ${data.queued} na fila${data.running ? ` · ${data.running} em validação` : ''}`;
         }
         if (percent) percent.textContent = `${data.percent}%`;
-        if (bar) bar.style.width = `${data.percent}%`;
-        track?.setAttribute('aria-valuenow', String(data.percent));
+        if (bar) {
+            bar.style.width = `${data.percent}%`;
+            bar.parentElement?.setAttribute('aria-valuenow', String(data.percent));
+        }
 
         if (nextTimeEl) {
+            nextTimeEl.replaceChildren();
             if (data.next_attempt_formatted && (data.queued || data.running)) {
-                nextTimeEl.style.display = 'inline-flex';
-                nextTimeEl.innerHTML = `<i class="fa-solid fa-clock"></i> Próxima averiguação prevista às ${data.next_attempt_formatted}`;
+                nextTimeEl.hidden = false;
+                nextTimeEl.append(clockIcon(), ` Próxima averiguação prevista às ${data.next_attempt_formatted}`);
             } else {
-                nextTimeEl.style.display = 'none';
-                nextTimeEl.innerHTML = '';
+                nextTimeEl.hidden = true;
             }
         }
 
-        if (!queue || !Array.isArray(data.items)) return;
-        queue.replaceChildren();
-        data.items.forEach((item) => {
-            const itemEl = document.createElement('div');
-            itemEl.className = 'validation-queue-item';
+        if (queue && Array.isArray(data.items)) {
+            queue.replaceChildren();
+            data.items.forEach((item) => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'validation-queue-item';
 
-            const headerEl = document.createElement('div');
-            headerEl.className = 'validation-item-header';
+                const headerEl = document.createElement('div');
+                headerEl.className = 'validation-item-header';
+                const usernameEl = document.createElement('strong');
+                usernameEl.textContent = `@${item.username}`;
+                const badgeEl = document.createElement('span');
+                badgeEl.className = `validation-badge ${item.badge_class || 'badge-queued'}`;
+                badgeEl.textContent = item.status_label || item.status;
+                headerEl.append(usernameEl, badgeEl);
 
-            const usernameEl = document.createElement('strong');
-            usernameEl.textContent = `@${item.username}`;
+                const subEl = document.createElement('div');
+                subEl.className = 'validation-item-sub';
+                subEl.textContent = item.sub_label || '';
 
-            const badgeEl = document.createElement('span');
-            badgeEl.className = `validation-badge ${item.badge_class || 'badge-queued'}`;
-            badgeEl.textContent = item.status_label || item.status;
+                itemEl.append(headerEl, subEl);
+                queue.appendChild(itemEl);
+            });
+        }
 
-            headerEl.append(usernameEl, badgeEl);
-
-            const subEl = document.createElement('div');
-            subEl.className = 'validation-item-sub';
-            subEl.textContent = item.sub_label || '';
-
-            itemEl.append(headerEl, subEl);
-            queue.appendChild(itemEl);
-        });
+        // The lists above were rendered by the server: offer a refresh when results arrive.
+        const banner = document.getElementById('validationRefresh');
+        if (banner && Number(card.dataset.completed) !== data.completed) banner.hidden = false;
     }
 
     function setupValidationProgress() {
         const card = document.getElementById('validationProgress');
         if (!card) return;
+        let timer = null;
+        let active = card.dataset.active === 'true';
+
         const refresh = async () => {
             try {
                 const response = await fetch(card.dataset.statusUrl, {headers: {'Accept': 'application/json'}});
-                if (response.ok) renderValidationProgress(await response.json());
+                if (!response.ok) return;
+                const data = await response.json();
+                active = data.active;
+                renderValidationProgress(card, data);
             } catch (error) {
                 console.warn('Não foi possível atualizar o progresso das validações.', error);
             }
+            if (!active) stop();
         };
-        refresh();
-        window.setInterval(refresh, 15000);
+        const start = () => {
+            if (timer === null && active) timer = window.setInterval(refresh, POLL_INTERVAL_MS);
+        };
+        const stop = () => {
+            if (timer !== null) window.clearInterval(timer);
+            timer = null;
+        };
+
+        // Poll only while a batch is running and the tab is visible.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { stop(); } else if (active) { refresh(); start(); }
+        });
+        if (active) { refresh(); start(); }
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
+        setupPasswordToggles();
+        setupConfirmations();
         setupUpload();
         setupValidationProgress();
         await registerServiceWorker();

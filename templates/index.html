@@ -24,11 +24,12 @@
             {% endif %}
         </div>
 
+        {% set removal_text = 'excluída permanentemente do Google Drive' if drive_delete_mode == 'delete' else 'movida para a lixeira do Google Drive' %}
         {% if not google_configured %}
         <div class="inline-notice warning">A integração precisa das credenciais OAuth no servidor. Consulte o guia de configuração no README.</div>
         {% elif not drive_connection %}
         <p class="section-copy">O Tracker observará, no Meu Drive, somente as novas pastas <strong>meta-*</strong> criadas pelo Instagram.</p>
-        <div class="inline-notice warning mb-3">Após confirmar a análise, a pasta de exportação processada será excluída permanentemente do Google Drive.</div>
+        <div class="inline-notice warning mb-3">Após confirmar a análise, a pasta de exportação processada será {{ removal_text }}.</div>
         <a href="{{ url_for('google_drive_connect') }}" class="btn btn-google w-100">Vincular conta do Google</a>
         {% else %}
         <div class="connection-summary">
@@ -36,21 +37,23 @@
             <a href="{{ url_for('google_drive_connect') }}" class="text-link">Trocar</a>
         </div>
         <p class="section-copy mb-0">O Tracker procura automaticamente novas exportações do Instagram a cada 1 hora.</p>
-        <div class="inline-notice warning mt-3">Exportações são excluídas permanentemente do Drive somente depois que o resultado é salvo.</div>
+        <div class="inline-notice warning mt-3">Depois que o resultado é salvo, a pasta processada é {{ removal_text }}.</div>
 
         <div class="sync-status mt-3">
             <div><span class="summary-label">Última verificação</span><strong>{{ drive_connection.last_checked_at|local_datetime if drive_connection.last_checked_at else 'Aguardando' }}</strong></div>
             <div><span class="summary-label">Última análise</span><strong>{{ drive_connection.last_success_at|local_datetime if drive_connection.last_success_at else 'Ainda não executada' }}</strong></div>
         </div>
-        {% if drive_connection.last_error %}<div class="inline-notice danger">{{ drive_connection.last_error }}</div>{% endif %}
+        {% if drive_connection.last_error %}<div class="inline-notice danger" role="alert">{{ drive_connection.last_error }}</div>{% endif %}
         <form action="{{ url_for('google_drive_sync_now') }}" method="POST" class="mt-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn btn-soft w-100" type="submit">Verificar agora</button>
+            <button class="btn btn-soft w-100" type="submit" {% if drive_connection.sync_requested %}disabled{% endif %}>
+                {{ 'Verificação solicitada…' if drive_connection.sync_requested else 'Verificar agora' }}
+            </button>
         </form>
 
         <details class="danger-zone">
             <summary>Opções da conexão</summary>
-            <form action="{{ url_for('google_drive_disconnect') }}" method="POST" onsubmit="return confirm('Desvincular esta conta do Google Drive?');">
+            <form action="{{ url_for('google_drive_disconnect') }}" method="POST" data-confirm="Desvincular esta conta do Google Drive?">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-link text-danger p-0">Desvincular Google Drive</button>
             </form>
@@ -63,7 +66,7 @@
             <div class="section-icon" aria-hidden="true">⇧</div>
             <div><span class="eyebrow">Sempre disponível</span><h2>Importação manual</h2></div>
         </div>
-        <p class="section-copy">Envie o ZIP completo ou todos os HTML/JSON da exportação atual. A nova lista substitui o retrato anterior e os arquivos são apagados após a análise.</p>
+        <p class="section-copy">Envie o ZIP completo ou <strong>todos</strong> os HTML/JSON da exportação atual (inclusive <code>followers_1</code>, <code>followers_2</code>…). A nova lista substitui o retrato anterior e os arquivos são apagados após a análise.</p>
         <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="upload-zone" id="dropZone" for="fileInput">
@@ -73,6 +76,12 @@
                 <input type="file" name="files" multiple class="visually-hidden" id="fileInput" accept=".zip,.html,.json" required>
             </label>
             <div id="fileList" class="selected-files" aria-live="polite"></div>
+            {% if needs_drop_confirmation %}
+            <label class="confirm-drop">
+                <input type="checkbox" name="confirm_large_drop" value="1">
+                <span>Confirmo que esta exportação está completa e que a queda no número de perfis é real.</span>
+            </label>
+            {% endif %}
             <button type="submit" class="btn btn-insta w-100" id="uploadButton" disabled>Analisar arquivos</button>
         </form>
     </section>
@@ -93,10 +102,13 @@
 
     <section class="glass-card privacy-card">
         <div class="privacy-mark" aria-hidden="true">✓</div>
-        <div><h2>Privacidade por padrão</h2><p>O Tracker guarda somente os resultados da análise. Exportações e pastas temporárias nunca ficam armazenadas.</p></div>
-        <form action="{{ url_for('reset_db') }}" method="POST" onsubmit="return confirm('Remover todo o histórico analisado da sua conta?');">
+        <div>
+            <h2>Seus dados ficam no seu servidor</h2>
+            <p>O Tracker guarda somente os resultados da análise; exportações e pastas temporárias nunca ficam armazenadas. Para confirmar remoções, o worker pode consultar perfis públicos no Instagram, um por vez.</p>
+        </div>
+        <form action="{{ url_for('reset_db') }}" method="POST" data-confirm="Remover todo o histórico analisado da sua conta? Isso não pode ser desfeito.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn btn-link text-danger p-0">Apagar meu histórico</button>
+            <button type="submit" class="btn btn-link text-danger p-0">Apagar meu histórico</button>
         </form>
     </section>
 </div>

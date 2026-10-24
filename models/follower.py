@@ -1,17 +1,30 @@
 from database import db
-from datetime import datetime
+from services.clock import local_now
+
 
 class Follower(db.Model):
+    """One relationship (`kind`) with one profile, in the user's current snapshot.
+
+    ``state`` is the lifecycle of the relationship:
+    present -> pending (missing from one export) -> absent (profile unavailable,
+    one retest scheduled) -> removed (confirmed) | untestable (still unavailable).
+    A profile in any state returns to ``present`` when it shows up in an export.
+    """
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "kind", "username", name="uq_follower_user_kind_username"),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
-    username = db.Column(db.String, nullable=False)
-    kind = db.Column(db.String, nullable=False)  
-    date_added = db.Column(db.DateTime, default=datetime.utcnow)
+    username = db.Column(db.String(255), nullable=False)
+    kind = db.Column(db.String(32), nullable=False)
+    date_added = db.Column(db.DateTime, default=local_now)
     is_present = db.Column(db.Boolean, nullable=False, default=True)
     missing_since = db.Column(db.DateTime, nullable=True)
     state = db.Column(db.String(32), nullable=False, default="present", index=True)
     missing_count = db.Column(db.Integer, nullable=False, default=0)
     validation_status = db.Column(db.String(32), nullable=False, default="idle")
-    last_validation_result = db.Column(db.String(32), nullable=True)
+    last_validation_result = db.Column(db.String(64), nullable=True)
     last_validated_at = db.Column(db.DateTime, nullable=True)
     retest_count = db.Column(db.Integer, nullable=False, default=0)

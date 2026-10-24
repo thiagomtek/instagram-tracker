@@ -9,11 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn \
+RUN pip install --no-cache-dir -r requirements.txt \
     && mkdir -p /ms-playwright \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache \
-    && chmod -R 777 /ms-playwright \
+    && chmod -R a+rX /ms-playwright \
     && useradd --create-home --uid 10001 appuser
 
 COPY . .

@@ -1,52 +1,41 @@
-# 📊 Instagram Analytics Hub
+# Instagram Tracker
 
-> Um dashboard local, privado e inteligente para análise de dados do Instagram. Monitore o crescimento, identifique quem não te segue de volta e visualize sua linha do tempo de seguidores com precisão histórica.
+Painel privado, hospedado por você, para analisar a **exportação oficial de dados do Instagram**: veja quem não te segue de volta, quem entrou, quem saiu e o histórico dessas mudanças entre uma importação e outra.
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Flask](https://img.shields.io/badge/Flask-2.0%2B-green)
-![Status](https://img.shields.io/badge/Status-Stable-brightgreen)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![Flask](https://img.shields.io/badge/Flask-3-green)
+![License](https://img.shields.io/badge/License-GPLv3-yellow)
+
+O Tracker **nunca pede a senha do Instagram**. Ele trabalha com os arquivos que o próprio Instagram entrega (HTML ou JSON) e guarda no seu servidor somente o resultado da análise.
 
 ---
 
-## 🚀 Sobre o Projeto
+## Funcionalidades
 
-Este software processa os arquivos de **Exportação de Dados do Instagram (formato HTML)** para gerar relatórios detalhados sobre o seu perfil. 
+- **Retrato atual de cada lista.** Cada exportação de seguidores/seguindo substitui a lista anterior daquele tipo. As datas históricas dentro do arquivo não são confundidas com a situação de hoje.
+- **Comparação entre as listas:** quem você segue e não te segue de volta, quem te segue e você não segue, e os mútuos.
+- **Mudanças entre importações:** a primeira importação cria a base; as seguintes registram quem entrou, ficou ausente, teve a saída confirmada, reapareceu ou voltou a seguir. Gráfico e lista com filtros por tipo, período, perfil e tipo de mudança.
+- **Confirmação de remoções** (veja [Como as remoções são confirmadas](#como-as-remoções-são-confirmadas)).
+- **Importação manual** de ZIP, HTML ou JSON, com proteções contra exportações incompletas e reenvios.
+- **Google Drive (opcional):** o worker observa as pastas `meta-*` que o Instagram entrega no Meu Drive, analisa e envia a pasta processada para a lixeira.
+- **PWA e Web Push:** instalável no celular, com aviso quando uma análise ou uma validação termina.
+- **Várias contas, dados isolados:** cada usuário vê, altera e apaga apenas os próprios dados. Há troca de senha e exclusão de conta.
+- **Sem arquivos residuais:** uploads, ZIPs e pastas baixadas são processados em diretórios temporários e removidos ao final.
 
-Diferente de aplicativos de terceiros que exigem sua senha e arriscam o bloqueio da sua conta, este sistema roda **localmente** na sua máquina e utiliza os dados oficiais fornecidos pelo Instagram, garantindo 100% de segurança e privacidade.
+## O que sai do seu servidor
 
-### ✨ Principais Funcionalidades
+Seja transparente com você mesmo sobre estas duas integrações:
 
-* **🛡️ Privado:** Acesso protegido por login; trabalha offline com arquivos `.html`.
-* **👤 Dados isolados por conta:** Cada usuário visualiza, altera e limpa apenas os próprios dados importados.
-* **🕵️ Análise de Relacionamento:**
-    * **Traidores:** Quem você segue, mas não te segue de volta.
-    * **Fãs:** Quem te segue, mas você não segue.
-    * **Mútuos:** Amigos que se seguem mutuamente.
-* **📸 Retrato atual correto:** Cada arquivo de seguidores/seguindo substitui a lista anterior daquele tipo. As datas históricas do Instagram não são confundidas com a situação atual.
-* **📉 Mudanças entre importações:** A primeira importação cria a base; as seguintes registram quem entrou e saiu no momento em que a mudança foi observada.
-* **📊 Gráfico interativo:** Entradas aparecem acima de zero e saídas abaixo, com filtros separados para “quem me segue” e “quem eu sigo”.
-* **🔍 Filtros Avançados:** Filtre o histórico por Nome de Usuário, Data ou Tipo de Evento.
-* **🎨 UI Moderna:** Interface "Glassmorphism" (efeito de vidro), modo escuro e responsiva.
-* **⚡ Performance e privacidade:** Usa avatares locais com iniciais, sem buscar fotos de perfil em serviços externos.
-* **☁️ Google Drive:** Observa automaticamente onde o Instagram entrega as exportações e remove cada pasta após confirmar a análise.
-* **📲 PWA e Web Push:** Pode ser instalado no celular e avisa quando uma análise automática termina.
-* **🧹 Sem arquivos residuais:** Uploads, ZIPs e pastas baixadas são processados em diretórios temporários e removidos ao final.
+| Integração | Quando | O que acontece |
+|---|---|---|
+| **Google Drive** | Somente se você vincular uma conta | O worker lê o Meu Drive e move para a lixeira as pastas `meta-*` processadas. O escopo OAuth é `drive` (acesso total), pois o Google não oferece um escopo menor que baixe e remova arquivos criados por outro app. O refresh token fica criptografado no SQLite. |
+| **Consulta a perfis no Instagram** | Quando um perfil some da lista e a outra lista não prova que ele existe | O worker abre a página pública do perfil em um Chromium sem login, **uma consulta por vez, com intervalos de 10 a 30 minutos**. Isso não é uma API oficial e pode contrariar os termos do Instagram. Desative com `PROFILE_VALIDATION_ENABLED=false`. |
 
----
-
-## 🛠️ Tecnologias Utilizadas
-
-* **Backend:** Python, Flask, SQLAlchemy (SQLite).
-* **Processamento de Dados:** Pandas, BeautifulSoup4.
-* **Frontend:** HTML5, CSS3 (Glassmorphism), Bootstrap 5, Jinja2.
-* **Visualização:** Plotly (Gráficos Dinâmicos).
+Fora isso, o app carrega apenas Bootstrap (CDN, com verificação SRI) e a fonte Inter (Google Fonts). O Plotly é servido pelo próprio app.
 
 ---
 
-## ⚙️ Instalação e Configuração
-
-### Docker (recomendado para homelab)
+## Instalação com Docker (recomendado)
 
 Requer Docker Engine com Docker Compose v2.
 
@@ -57,9 +46,9 @@ Requer Docker Engine com Docker Compose v2.
    openssl rand -hex 32
    ```
 
-   Use o resultado do segundo comando em `SECRET_KEY`. Defina `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD` com as credenciais iniciais. Na primeira inicialização, a aplicação converte essa senha em hash e a armazena no banco SQLite; ela nunca é versionada no Git. Depois de confirmar o acesso, remova `INITIAL_ADMIN_PASSWORD` do `.env`.
+   Use o resultado do segundo comando em `SECRET_KEY` e **mantenha-o estável** (trocá-lo desconecta todos). Defina `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD`: na primeira inicialização a senha vira hash no SQLite e nunca é versionada. Depois de confirmar o acesso, remova `INITIAL_ADMIN_PASSWORD` do `.env`.
 
-2. Inicie o serviço:
+2. Suba os serviços (aplicação web e worker):
 
    ```bash
    docker compose up -d --build
@@ -67,134 +56,166 @@ Requer Docker Engine com Docker Compose v2.
 
 3. Acesse `http://IP_DO_SERVIDOR:8080` e entre com as credenciais configuradas.
 
-O volume nomeado `tracker-data` preserva somente o SQLite ao atualizar ou recriar os containers. Os arquivos importados nunca são persistidos. Para backup, pare o serviço e copie esse volume; não use `docker compose down -v`, pois esse comando remove o volume e os dados.
+**Dados.** O volume nomeado `tracker-data` guarda somente o SQLite. Para backup, pare o serviço e copie o volume. Nunca use `docker compose down -v`: ele apaga o volume e os dados.
 
-Por padrão, a tela de login permite criar novas contas. Quando todos os usuários necessários tiverem sido cadastrados, altere `ALLOW_REGISTRATION=false` no `.env` e execute `docker compose up -d` para fechar novos cadastros.
+**Cadastro.** Fechado por padrão (`ALLOW_REGISTRATION=false`); só a primeira conta pode ser criada livremente. Ative temporariamente se precisar criar outras contas.
 
-Para expor publicamente, mantenha o app atrás de um proxy reverso com HTTPS (por exemplo, Nginx Proxy Manager, Caddy ou Traefik). Não exponha a porta `8080` diretamente na internet.
+**Internet.** Para expor publicamente, mantenha o app atrás de um proxy reverso com HTTPS (Nginx Proxy Manager, Caddy ou Traefik) e não publique a porta `8080` diretamente. Com HTTPS, mantenha `SESSION_COOKIE_SECURE=true`.
 
-### Integração automática com o Google Drive
+**Saúde.** O serviço web expõe `/healthz`. O worker atualiza um arquivo de batimento a cada ciclo e o `healthcheck` do compose o marca como não saudável se ele travar.
+
+### Variáveis de ambiente
+
+Todas estão em [`.env.example`](.env.example) com comentários. As principais:
+
+| Variável | Padrão | Função |
+|---|---|---|
+| `SECRET_KEY` | obrigatória | Assina a sessão. Mantenha estável. |
+| `ALLOW_REGISTRATION` | `false` | Permite criar contas pela tela de login. |
+| `LOGIN_MAX_FAILURES` / `LOGIN_LOCK_SECONDS` | `5` / `900` | Bloqueio por tentativas de login (por IP e e-mail). |
+| `SESSION_DAYS` | `3650` | Duração do login. Trocar a senha desconecta os outros dispositivos. |
+| `GOOGLE_DRIVE_DELETE_MODE` | `trash` | `trash` envia a pasta processada para a lixeira (recuperável); `delete` exclui em definitivo. |
+| `IMPORT_MASS_DROP_RATIO` / `IMPORT_MASS_DROP_MIN` | `0.3` / `20` | Exportação que removeria essa fração (e ao menos esse número) de perfis é recusada até você confirmar. |
+| `IMPORT_DUPLICATE_WINDOW_HOURS` | `12` | A mesma lista reenviada dentro dessa janela é ignorada. |
+| `PROFILE_VALIDATION_ENABLED` | `true` | Liga/desliga a consulta a perfis no Instagram. |
+| `APP_TIMEZONE` | `America/Sao_Paulo` | Fuso usado para exibir datas e para os filtros do painel. |
+
+### Integração com o Google Drive
 
 1. No [Google Cloud Console](https://console.cloud.google.com/), crie ou selecione um projeto e ative a **Google Drive API**.
 2. Configure a tela de consentimento OAuth e crie um cliente OAuth 2.0 do tipo **Aplicativo da Web**.
-3. Cadastre como URI de redirecionamento exatamente a URL pública exibida em `GOOGLE_REDIRECT_URI`, por exemplo:
-
-   ```text
-   https://tracker.example.com/integrations/google/callback
-   ```
-
-4. Preencha `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI` no `.env`.
-5. Gere uma chave exclusiva para criptografar os refresh tokens armazenados:
+3. Cadastre como URI de redirecionamento exatamente o valor de `GOOGLE_REDIRECT_URI`, por exemplo `https://tracker.example.com/integrations/google/callback`.
+4. Preencha `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI`.
+5. Gere a chave que criptografa o refresh token e guarde em `GOOGLE_TOKEN_ENCRYPTION_KEY` (não troque enquanto houver contas vinculadas):
 
    ```bash
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
 
-   Copie o resultado para `GOOGLE_TOKEN_ENCRYPTION_KEY`. Não troque essa chave enquanto houver contas vinculadas.
+6. Reinicie com `docker compose up -d --build` e use **Vincular conta do Google** na tela inicial.
 
-6. Suba novamente os dois serviços:
+O worker verifica o Drive a cada 1 hora. O padrão observado nas transferências é `Meu Drive/meta-<data-hora>/instagram-<conta>-<data>/connections/followers_and_following/*.html`; por isso só pastas `meta-*` diretamente no Meu Drive são consideradas, e apenas `followers_and_following` é lida. Para não tocar numa transferência em andamento, o worker exige os arquivos de seguidores e seguindo e aguarda `GOOGLE_DRIVE_SETTLE_SECONDS` sem modificações.
 
-   ```bash
-   docker compose up -d --build
-   ```
-
-O serviço web recebe uploads e configurações. O serviço `instagram-tracker-worker` verifica automaticamente o Meu Drive a cada 1 hora. Para não tocar numa transferência ainda em andamento, o worker exige os arquivos de seguidores e seguindo e aguarda o período de estabilidade definido em `GOOGLE_DRIVE_SETTLE_SECONDS` antes de analisar e remover a exportação.
-
-Depois do login, use **Vincular conta do Google**. O padrão observado nas transferências é `Meu Drive/meta-<data-hora>/instagram-<conta>-<data>/connections/followers_and_following/*.html`; por isso, o worker considera somente pastas `meta-*` diretamente no Meu Drive e desce até `followers_and_following`, ignorando a pasta `files` e as outras categorias. O botão **Verificar agora** permanece disponível para uma busca imediata entre os ciclos automáticos.
-
-A permissão solicitada é `drive`, pois o worker precisa baixar e excluir arquivos criados pelo Instagram. A autorização não incorpora permissões concedidas anteriormente ao mesmo projeto Google, evitando misturar escopos de identidade (`openid`, perfil e e-mail) com o escopo do Drive. Depois que a análise e o registro do processamento são confirmados no SQLite, a pasta `meta-*` é excluída permanentemente do Google Drive. Se a exclusão falhar, o resultado continua salvo, o erro aparece no histórico e o worker tenta limpar a origem novamente. Contas vinculadas em uma versão anterior, que concediam somente leitura, precisam ser reconectadas uma vez.
-
-### Histórico de processamentos
-
-A tela **Processamentos** registra importações manuais e automáticas. Cada item mostra origem, horário, duração, quantidade de arquivos, total de seguidores encontrado e os seguidores ganhos/perdidos, incluindo os nomes. Falhas de análise ou de remoção do arquivo de origem também ficam visíveis para auditoria.
+O botão **Verificar agora** apenas pede ao worker uma verificação imediata (o resultado aparece em *Histórico*). Depois que a análise é confirmada no SQLite, a pasta processada vai para a lixeira. Se isso falhar, o resultado continua salvo, o erro aparece no histórico e o worker tenta de novo. Se uma exportação do Drive for recusada pelas proteções de importação, a verificação para com uma mensagem explicando como resolver (importar manualmente com confirmação e remover a pasta).
 
 ### PWA e notificações
 
-O PWA requer HTTPS, exceto em `localhost`. Gere um único par VAPID e guarde-o no `.env`:
+O PWA requer HTTPS, exceto em `localhost`. Gere um par VAPID uma única vez e guarde no `.env`:
 
 ```bash
 python scripts/generate_vapid_keys.py
 ```
 
-Copie as duas linhas geradas para `PUSH_VAPID_PUBLIC_KEY` e `PUSH_VAPID_PRIVATE_KEY` e configure `PUSH_VAPID_SUBJECT` com um `mailto:` real. Depois, instale o app pelo menu do navegador e ative as notificações na tela inicial.
+Copie as duas linhas para `PUSH_VAPID_PUBLIC_KEY` e `PUSH_VAPID_PRIVATE_KEY` e defina `PUSH_VAPID_SUBJECT` com um `mailto:` real. Instale o app pelo menu do navegador e ative as notificações na tela *Importar*.
 
-`PWA_ID=/instagram-tracker-pwa` dá ao app uma identidade própria. Quando outros PWAs usam o mesmo hostname, mantenha cada aplicação em uma origem HTTPS diferente. Como a porta faz parte da origem web, manifests, service workers, Cache Storage e inscrições Web Push não são compartilhados entre origens distintas. O Tracker pode, portanto, manter `start_url` e `scope` em `/` sem interferir nos outros PWAs.
-
-### Sessão persistente
-
-O login é renovado a cada acesso e, por padrão, dura 3.650 dias. Na prática ele permanece ativo até o usuário sair, limpar os dados do navegador, a conta ser removida ou o `SECRET_KEY` mudar. Mantenha `SECRET_KEY` estável. Em produção HTTPS use `SESSION_COOKIE_SECURE=true`; para desenvolvimento HTTP local, altere temporariamente para `false`.
-
-### Pré-requisitos
-* Python 3.8 ou superior instalado.
-
-### Passo a Passo
-
-1.  **Clone o repositório:**
-    ```bash
-    git clone [https://github.com/seu-usuario/instagram-tracker.git](https://github.com/seu-usuario/instagram-tracker.git)
-    cd instagram-tracker
-    ```
-
-2.  **Crie um ambiente virtual (Opcional, mas recomendado):**
-    ```bash
-    # Windows
-    python -m venv venv
-    venv\Scripts\activate
-
-    # Mac/Linux
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-
-3.  **Instale as dependências:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    *(Se não tiver o arquivo requirements.txt, instale manualmente: `pip install flask flask-sqlalchemy beautifulsoup4 plotly pandas`)*
-
-4.  **Execute a aplicação:**
-    ```bash
-    python app.py
-    ```
-
-5.  **Acesse no navegador:**
-    Abra `http://127.0.0.1:5000`
+`PWA_ID` dá ao app uma identidade própria. Como a porta faz parte da origem web, PWAs em portas diferentes do mesmo host não compartilham manifest, service worker nem inscrições push.
 
 ---
 
-## 📂 Como Obter seus Dados do Instagram
+## Desenvolvimento local
 
-Para alimentar o sistema, você precisa baixar seus dados oficiais:
+Requer Python 3.9 ou superior (o Docker usa 3.12).
 
-1.  Abra o App do Instagram ou vá em `instagram.com`.
-2.  Vá em **Configurações** > **Sua atividade**.
-3.  Procure por **Baixar suas informações**.
-4.  Selecione **"Baixar ou transferir informações"** > **"Algumas de suas informações"**.
-5.  Marque: **Seguidores e seguindo**. (Opcional: Marque também "Informações do perfil" e outros para dados extras).
-6.  Selecione **Baixar para o dispositivo**.
-7.  **IMPORTANTE:**
-    * Intervalo de datas: **Desde o início** (para a primeira vez).
-    * Formato: **HTML** (Não use JSON).
-8.  Quando o Instagram enviar o email, baixe o ZIP e extraia.
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+SESSION_COOKIE_SECURE=false SECRET_KEY=dev \
+INITIAL_ADMIN_EMAIL=voce@example.com INITIAL_ADMIN_PASSWORD=uma-senha-de-12+ \
+FLASK_DEBUG=1 python app.py
+```
 
----
+Abra `http://127.0.0.1:5000`. Sem `DATA_DIR`, o banco `data.db` é criado na pasta do projeto (ignorado pelo Git). A consulta a perfis precisa do Chromium do Playwright (`python -m playwright install chromium`); sem ele, as consultas ficam "inconclusivas".
 
-## 🖥️ Como Usar
+Testes (não acessam a internet nem criam arquivos no projeto):
 
-1.  Na tela inicial do sistema, você verá uma área de **Upload**.
-2.  Arraste **TODOS** os arquivos HTML relevantes da exportação atual de uma vez para a caixa. Cada conjunto importado é tratado como o retrato atual daquele tipo. O sistema suporta:
-    * `followers_1.html` (e outros números)
-    * `following.html`
-    * `pending_follow_requests.html`
-    * `recently_unfollowed_profiles.html`
-    * `blocked_profiles.html`
-    * `close_friends.html`
-3.  Clique em **Processar Dados**.
-4.  O Dashboard será gerado automaticamente com o histórico retroativo.
+```bash
+python -m pytest tests
+```
+
+Para rodar o worker localmente: `python worker.py`.
 
 ---
 
-## 🗂️ Estrutura do Projeto
-instagram-tracker/ │ ├── app.py # Arquivo principal (Rotas e Lógica) ├── config.py # Configurações do Flask ├── database.py # Instância do SQLAlchemy ├── data.db # Banco de dados SQLite (gerado automaticamente) │ ├── services/ │ ├── parser.py # Lê o HTML e extrai datas/usuários │ ├── storage.py # Lógica inteligente de salvar/mesclar no banco │ └── compare.py # Matemática de conjuntos (Ganhos/Perdas) │ ├── static/ │ └── style.css # Estilos CSS (Glassmorphism) │ └── templates/ ├── layout.html # Base do HTML ├── index.html # Tela de Upload └── dashboard.html # Painel de Análise
+## Como obter seus dados do Instagram
 
+1. No app ou em `instagram.com`, vá em **Configurações** > **Central de Contas** > **Suas informações e permissões** > **Baixar suas informações** (o caminho varia conforme a versão).
+2. Escolha **Baixar ou transferir informações** > **Algumas de suas informações** e marque **Seguidores e seguindo**.
+3. Escolha **Baixar para o dispositivo**, intervalo **Desde o início**, formato **HTML** (JSON também é aceito).
+4. Quando o Instagram avisar, baixe o ZIP. Você pode enviá-lo inteiro: o Tracker lê apenas os HTML/JSON e ignora o resto.
 
+Seguidores grandes são divididos em `followers_1.html`, `followers_2.html`… **Envie todos os arquivos juntos.** Se faltar algum, o Tracker percebe a queda brusca e pede confirmação antes de aplicar.
+
+## Como usar
+
+1. Em **Importar**, envie o ZIP ou todos os arquivos da exportação atual e clique em **Analisar arquivos** (ou deixe o Google Drive fazer isso).
+2. O **Painel** mostra a situação atual, as listas comparadas, o progresso das validações e a atividade observada.
+3. **Histórico** lista cada processamento, manual ou automático, com horário, duração e perfis alterados.
+4. **Conta** permite trocar a senha (desconecta os outros dispositivos) e excluir a conta com todos os dados.
+
+---
+
+## Como as remoções são confirmadas
+
+Um perfil que some de uma exportação **não significa necessariamente** que deixou de seguir: a conta pode ter sido desativada, excluída, ou ter bloqueado você. Por isso cada relação segue um ciclo de estados:
+
+```text
+present ──(sumiu da exportação)──▶ pending ──┬─(outra lista prova que a conta existe)────────┐
+   ▲                                          │                                               ▼
+   │                                          └─(consulta ao Instagram)─▶ existe ───────▶ confirmação
+   │                                                     │
+   │                                                     └─▶ indisponível ─▶ absent ─(reteste)─▶ untestable
+   └────────────(voltou a aparecer em qualquer exportação: "reapareceu")
+```
+
+| Estado | Significado | Onde aparece |
+|---|---|---|
+| `present` | Está na exportação atual. | Listas e KPIs. |
+| `pending` | Sumiu de uma exportação; aguardando validação. | *Ausentes* (e mudança "ficou ausente"). |
+| `absent` | O perfil estava indisponível numa consulta; um reteste está agendado. | *Ausentes*. |
+| `removed` | Remoção **confirmada**. Se a pessoa voltar, é registrado "voltou a seguir". | Atividade ("confirmado"); sai das *Ausentes*. |
+| `untestable` | Continuou indisponível após o reteste (conta excluída, desativada ou que bloqueou você). | Card **Perfis indisponíveis**. |
+
+A **remoção é confirmada** quando duas condições se cumprem:
+
+1. o perfil **existe** — provado pela presença dele na lista oposta (ex.: some de *seguidores* mas continua em *seguindo*) ou por uma consulta ao Instagram; e
+2. ele continua fora da lista em **2 exportações distintas**. Enviar o mesmo arquivo duas vezes não conta como duas exportações.
+
+Daí os números do painel: "novos", "aguardando validação", "remoções confirmadas", "reapareceram" e "voltaram a seguir". Uma consulta inconclusiva é repetida até `PROFILE_VALIDATION_MAX_ATTEMPTS` vezes e depois ganha um único reteste.
+
+### Proteções de importação
+
+- **Lista vazia ou queda brusca** (por padrão, ao menos 20 perfis e 30% da lista) é recusada com a mensagem "Nada foi alterado" até você marcar a confirmação. Isso protege contra um `followers_2.html` esquecido ou contra mudança no layout do arquivo do Instagram.
+- **Mesmo arquivo reenviado** dentro de 12 horas é ignorado, sem alterar contadores.
+- Uma importação recusada ou com erro **não altera nenhum dado**.
+
+## Datas e fuso horário
+
+Datas do retrato (listas e atividade) ficam na hora local de `APP_TIMEZONE`, igual ao que o Instagram mostra e aos filtros do painel. Horários operacionais (processamentos, Drive, agendamento das consultas) ficam em UTC e são exibidos no fuso configurado. O fuso do contêiner não interfere. Veja [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Estrutura do projeto
+
+```text
+app.py                  Rotas, autenticação, painel e cabeçalhos de segurança
+worker.py               Loop do Google Drive e das validações de perfil
+config.py               Configuração por variáveis de ambiente
+database.py             Instância do SQLAlchemy (SQLite em WAL)
+models/                 follower, history, user, integration (execuções, Drive, push,
+                        validações), system (migrações, observações de importação, login)
+services/
+  importer.py           ZIP/HTML/JSON → listas; proteções e regras de confirmação
+  parser.py             Leitura dos arquivos do Instagram (pt-BR e inglês)
+  storage.py            Substitui cada lista pelo retrato atual
+  profile_validation.py Fila, regras e consulta de perfis (Playwright)
+  presentation.py       Dados do painel, progresso das validações e gráfico
+  google_drive.py       Varredura, download e limpeza das pastas meta-*
+  schema.py             Migrações SQLite idempotentes
+  security.py           Bloqueio de tentativas de login
+  clock.py              Convenções de data (UTC operacional, hora local do retrato)
+static/ templates/      Interface, PWA e service worker
+tests/                  Testes de regras, importação, Drive e telas
+```
+
+## Licença
+
+GPLv3. Veja [LICENSE](LICENSE).

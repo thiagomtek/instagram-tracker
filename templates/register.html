@@ -1,11 +1,13 @@
 {% extends 'layout.html' %}
 
+{% block title %}Criar conta · Instagram Tracker{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center align-items-center" style="min-height: 76vh;">
     <div class="col-sm-10 col-md-7 col-lg-5">
         <div class="glass-card">
             <div class="text-center mb-4">
-                <div class="login-icon">✨</div>
+                <div class="login-icon" aria-hidden="true">✨</div>
                 <h1 class="mb-2 brand-text">Criar conta</h1>
                 <p class="text-secondary mb-0">Use um e-mail e uma senha de pelo menos 12 caracteres.</p>
             </div>
@@ -34,15 +36,4 @@
         </div>
     </div>
 </div>
-<script>
-document.querySelectorAll('[data-password-toggle]').forEach((button) => {
-    button.addEventListener('click', () => {
-        const input = document.getElementById(button.dataset.passwordToggle);
-        const isHidden = input.type === 'password';
-        input.type = isHidden ? 'text' : 'password';
-        button.textContent = isHidden ? 'Ocultar' : 'Mostrar';
-        button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
-    });
-});
-</script>
 {% endblock %}
