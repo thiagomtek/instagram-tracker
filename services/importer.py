@@ -8,23 +8,29 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import BadZipFile, ZipFile
 
+from bs4 import BeautifulSoup
 from flask import current_app
 
 from database import db
 from models.follower import Follower
 from models.history import History
-from models.integration import RelationshipValidation
 from models.system import ImportObservation
 from services.clock import local_now, utc_now
 from services.parser import detect_kind, parse_instagram_file
-from services.profile_validation import enqueue_relationship_validation, resolve_existing_profile
-from services.storage import save_followers
+from services.profile_validation import enqueue_profile_scan, enqueue_relationship_validation
+from services.storage import merge_follower_delta, save_followers
 
 
 MAX_ARCHIVE_FILES = int(os.environ.get("MAX_ARCHIVE_FILES", "10000"))
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = int(os.environ.get("MAX_ARCHIVE_UNCOMPRESSED_BYTES", str(1024 * 1024 * 1024)))
 EXTRACTED_SUFFIXES = {".html", ".json"}
 RELATIONSHIP_KINDS = ("followers", "following")
+CONCLUSIVE_PROFILE_STATUSES = ("exists", "unavailable")
+
+
+def _is_metadata_path(path):
+    parts = Path(path).parts
+    return "__MACOSX" in parts or any(part.startswith("._") for part in parts)
 
 
 class ImportRejected(ValueError):
@@ -41,6 +47,8 @@ class ImportRejected(ValueError):
 
 @dataclass
 class ImportSummary:
+    mode: str = "snapshot"
+    note: str = ""
     files_read: int = 0
     followers_found: int = 0
     following_found: int = 0
@@ -75,11 +83,12 @@ class ImportSummary:
     def message(self):
         if self.is_duplicate:
             return (
-                "Esta exportação é idêntica à última importada recentemente; "
+                "Esta exportação é idêntica à última importada; "
                 "nada foi alterado."
             )
+        prefix = "Atualização diária" if self.mode == "delta" else "Retrato completo"
         parts = [
-            f"{self.files_read} arquivo(s) analisado(s), "
+            f"{prefix}: {self.files_read} arquivo(s) analisado(s), "
             f"{self.followers_found} seguidores e {self.following_found} perfis seguidos.",
             f"Seguidores: {self.followers_gained} novo(s)",
             f"{self.followers_missing} aguardando validação",
@@ -90,6 +99,8 @@ class ImportSummary:
             parts.append(f"{self.followers_followed_again} voltou(aram) a seguir")
         if self.skipped_duplicates:
             parts.append("Listas idênticas à importação anterior foram ignoradas")
+        if self.note:
+            parts.append(self.note)
         return ". ".join(parts) + "."
 
 
@@ -100,7 +111,8 @@ def _safe_extract(archive_path, destination):
         with ZipFile(archive_path) as archive:
             members = [
                 member for member in archive.infolist()
-                if member.is_dir() or Path(member.filename).suffix.lower() in EXTRACTED_SUFFIXES
+                if not _is_metadata_path(member.filename)
+                and (member.is_dir() or Path(member.filename).suffix.lower() in EXTRACTED_SUFFIXES)
             ]
             if len(members) > MAX_ARCHIVE_FILES:
                 raise ValueError("O arquivo ZIP excede o limite máximo de arquivos permitidos.")
@@ -144,11 +156,85 @@ def _discover_data_files(paths, extraction_root):
                 _safe_extract(candidate, zip_destination)
                 data_files.extend(
                     item for item in zip_destination.rglob("*")
-                    if item.is_file() and item.suffix.lower() in EXTRACTED_SUFFIXES
+                    if item.is_file()
+                    and item.suffix.lower() in EXTRACTED_SUFFIXES
+                    and not _is_metadata_path(item)
                 )
-            elif suffix in EXTRACTED_SUFFIXES:
+            elif suffix in EXTRACTED_SUFFIXES and not _is_metadata_path(candidate):
                 data_files.append(candidate)
     return data_files
+
+
+def _inspect_export_manifests(files):
+    """Classify Meta exports as complete snapshots or bounded deltas.
+
+    ``start_here.html`` is the only authoritative metadata bundled by Meta.
+    A bounded date range is an event slice: its entries can be merged, but
+    omissions can never be interpreted as relationship removals.
+    """
+    def is_manifest(path):
+        return path.name.casefold().endswith("start_here.html")
+
+    available_kinds = {
+        kind
+        for path in files
+        if not is_manifest(path)
+        for kind in (detect_kind(str(path), path.name),)
+        if kind
+    }
+    mode = "snapshot"
+    manifests = [path for path in files if is_manifest(path)]
+    for manifest in manifests:
+        with manifest.open("r", encoding="utf-8") as handle:
+            soup = BeautifulSoup(handle.read(), "html.parser")
+        text = " ".join(soup.get_text(" ", strip=True).casefold().split())
+        bounded_range = (
+            ("contém os dados de " in text and " que você solicitou" in text)
+            or ("contem os dados de " in text and " que voce solicitou" in text)
+            or ("contains data from " in text and " that you requested" in text)
+        )
+        if bounded_range:
+            mode = "delta"
+            continue
+
+        referenced_kinds = {
+            kind
+            for link in soup.find_all("a", href=True)
+            for kind in (detect_kind("", Path(link["href"]).name),)
+            if kind in RELATIONSHIP_KINDS
+        }
+        missing = referenced_kinds - available_kinds
+        if missing:
+            labels = {"followers": "seguidores", "following": "seguindo"}
+            names = " e ".join(labels[kind] for kind in RELATIONSHIP_KINDS if kind in missing)
+            raise ImportRejected(
+                f"A exportação está incompleta: o índice aponta para o arquivo de {names}, "
+                "mas ele não está no ZIP. Nada foi alterado."
+            )
+    return mode
+
+
+def _source_fingerprint(files):
+    """Identify the logical export while ignoring ZIP/root-folder renames."""
+    entries = []
+    for path in files:
+        content_digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                content_digest.update(chunk)
+        if path.name.casefold().endswith("start_here.html"):
+            logical_kind = "manifest"
+        else:
+            logical_kind = detect_kind(str(path), path.name) or path.suffix.casefold()
+        entries.append((logical_kind, content_digest.hexdigest()))
+
+    digest = hashlib.sha256()
+    for logical_kind, content_hash in sorted(entries):
+        digest.update(logical_kind.encode("utf-8", errors="replace"))
+        digest.update(b"\0")
+        digest.update(content_hash.encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _deduplicate(items):
@@ -172,22 +258,26 @@ def _fingerprint(items):
     return digest.hexdigest()
 
 
-def _is_recent_duplicate(user_id, kind, fingerprint):
+def _is_duplicate(user_id, kind, fingerprint, source_fingerprint):
     window = timedelta(hours=current_app.config["IMPORT_DUPLICATE_WINDOW_HOURS"])
     observation = ImportObservation.query.filter_by(user_id=user_id, kind=kind).first()
     return bool(
         observation
         and observation.fingerprint == fingerprint
-        and utc_now() - observation.observed_at < window
+        and (
+            (source_fingerprint and observation.source_fingerprint == source_fingerprint)
+            or (not source_fingerprint and utc_now() - observation.observed_at < window)
+        )
     )
 
 
-def _remember_observation(user_id, kind, fingerprint):
+def _remember_observation(user_id, kind, fingerprint, source_fingerprint):
     observation = ImportObservation.query.filter_by(user_id=user_id, kind=kind).first()
     if observation is None:
         observation = ImportObservation(user_id=user_id, kind=kind)
         db.session.add(observation)
     observation.fingerprint = fingerprint
+    observation.source_fingerprint = source_fingerprint
     observation.observed_at = utc_now()
 
 
@@ -224,10 +314,16 @@ def _record_history(user_id, kind, action, usernames, observed_at):
         db.session.add(History(user_id=user_id, username=username, action=action, kind=kind, date_added=observed_at))
 
 
-def _resolve_known_profiles(kind, known_existing, user_id, analysis_run_id, observed_local, observed_utc, summary):
-    """Settle missing profiles whose existence is proven by the opposite list;
-    queue a web check for the rest."""
-    opposite_label = "seguindo" if kind == "followers" else "seguidores"
+def _queue_profile_validations(kind, known_existing, user_id, analysis_run_id, observed_utc, summary, newly_missing):
+    """Queue a conclusion only for profiles that just left the list.
+
+    A full snapshot repeats everything already known. Profiles that were
+    already settled in an earlier import (``absent`` after their retest) are
+    not looked up again; they return to ``present`` by themselves if a later
+    export lists them. Profiles still ``pending`` without any validation
+    (for example when web validation was disabled) are picked up as well.
+    """
+    newly_missing = {value.casefold() for value in newly_missing}
     candidates = Follower.query.filter(
         Follower.user_id == user_id,
         Follower.kind == kind,
@@ -235,100 +331,141 @@ def _resolve_known_profiles(kind, known_existing, user_id, analysis_run_id, obse
         Follower.state.in_(("pending", "absent")),
         Follower.validation_status.in_(("idle", "completed")),
     ).all()
+    candidates = [
+        follower for follower in candidates
+        if follower.username.casefold() in newly_missing
+        or (follower.state == "pending" and follower.validation_status == "idle")
+    ]
 
     for follower in candidates:
         if follower.username.casefold() in known_existing:
-            outcome, newly_lost = resolve_existing_profile(follower, observed_local)
-            if outcome == "relationship_removed":
-                details = (
-                    f"Existência comprovada pela presença em {opposite_label}. "
-                    f"Remoção confirmada após {follower.missing_count} exportações completas."
-                )
-            else:
-                details = (
-                    f"Conta ativa em {opposite_label}. Comprovada sem consulta web. "
-                    "Aguardando nova exportação."
-                )
-            if newly_lost and kind == "followers":
-                summary.followers_lost += 1
-
-            follower.validation_status = "completed"
-            follower.last_validation_result = outcome
-            follower.last_validated_at = observed_utc
-            db.session.add(
-                RelationshipValidation(
-                    user_id=follower.user_id,
-                    analysis_run_id=analysis_run_id,
-                    follower_id=follower.id,
-                    username=follower.username,
-                    kind=follower.kind,
-                    status="completed",
-                    outcome=outcome,
-                    attempts=0,
-                    missing_count_snapshot=follower.missing_count,
-                    next_attempt_at=observed_utc,
-                    last_attempt_at=observed_utc,
-                    completed_at=observed_utc,
-                    notification_sent_at=observed_utc,
-                    details=details,
-                    created_at=observed_utc,
-                )
+            _, created = enqueue_relationship_validation(
+                follower,
+                analysis_run_id=analysis_run_id,
+                observed_at=observed_utc,
+                evidence="opposite_list",
             )
-            summary.validation_total += 1
-            summary.validation_completed += 1
         elif current_app.config["PROFILE_VALIDATION_ENABLED"]:
             _, created = enqueue_relationship_validation(
                 follower,
                 analysis_run_id=analysis_run_id,
                 observed_at=observed_utc,
+                evidence="web",
             )
-            if created:
-                summary.validation_total += 1
+        else:
+            created = False
+        if created:
+            summary.validation_total += 1
+
+
+def _queue_profile_scans(user_id, analysis_run_id, observed_utc, summary, usernames=None):
+    """Queue one asynchronous existence/avatar scan per profile not yet conclusively scanned.
+
+    Profiles whose scan already concluded (exists/unavailable) keep their photo
+    and status; re-importing a full snapshot must not fetch the whole list again.
+    Profiles left half-scanned (cancelled, blocked or inconclusive) are scanned.
+    """
+    if not current_app.config["PROFILE_VALIDATION_ENABLED"] or not current_app.config["PROFILE_SCAN_ALL_ENABLED"]:
+        return
+    requested = {value.casefold() for value in usernames} if usernames is not None else None
+    rows = Follower.query.filter_by(user_id=user_id).order_by(Follower.id.asc()).all()
+    already_checked = {row.username.casefold() for row in rows if row.profile_status in CONCLUSIVE_PROFILE_STATUSES}
+    seen = set(already_checked)
+    for follower in rows:
+        key = follower.username.casefold()
+        if not follower.is_present or key in seen or (requested is not None and key not in requested):
+            continue
+        seen.add(key)
+        _, created = enqueue_profile_scan(
+            follower,
+            analysis_run_id=analysis_run_id,
+            observed_at=observed_utc,
+        )
+        if created:
+            summary.validation_total += 1
 
 
 def process_import_paths(paths, user_id, analysis_run_id=None, allow_large_drop=False):
     """Process an upload batch without retaining any source file on the server."""
     with TemporaryDirectory(prefix="instagram-analysis-") as extraction_root:
         files = _discover_data_files(paths, extraction_root)
+        source_fingerprint = _source_fingerprint(files)
+        mode = _inspect_export_manifests(files)
         grouped = {}
+        recognized_files = 0
         for path in files:
             kind = detect_kind(str(path), path.name)
             if not kind:
                 continue
+            recognized_files += 1
             grouped.setdefault(kind, []).extend(parse_instagram_file(str(path)))
 
-    if not grouped:
+    if not grouped and mode != "delta":
         raise ValueError("Nenhum arquivo de relacionamentos do Instagram foi reconhecido.")
 
     deduplicated = {kind: _deduplicate(items) for kind, items in grouped.items()}
-    summary = ImportSummary(files_read=len(files))
+    summary = ImportSummary(mode=mode, files_read=recognized_files)
+    if mode == "delta" and not any(kind in deduplicated for kind in RELATIONSHIP_KINDS):
+        summary.note = (
+            "Atualização diária analisada: nenhum evento de seguidores ou perfis seguidos "
+            "foi incluído neste período. O retrato atual não foi alterado."
+        )
+        return summary
+
+    incoming_relationship_kinds = {kind for kind in RELATIONSHIP_KINDS if kind in deduplicated}
+    missing_baselines = {
+        kind
+        for kind in incoming_relationship_kinds
+        if mode == "delta" and ImportObservation.query.filter_by(user_id=user_id, kind=kind).first() is None
+    }
+    if missing_baselines == incoming_relationship_kinds and missing_baselines:
+        summary.note = (
+            "Atualização diária reconhecida, mas ignorada porque ainda não existe uma base completa. "
+            "Importe uma exportação manual com o período 'Desde o início'; nenhum dado foi alterado."
+        )
+        return summary
+    if missing_baselines:
+        labels = {"followers": "seguidores", "following": "seguindo"}
+        summary.note = "Sem base completa, foram ignorados: " + ", ".join(
+            labels[kind] for kind in RELATIONSHIP_KINDS if kind in missing_baselines
+        )
 
     # Read-only checks first, so a rejected import changes nothing.
     fingerprints = {}
     for kind in RELATIONSHIP_KINDS:
         if kind not in deduplicated:
             continue
+        if kind in missing_baselines:
+            continue
+        observation_kind = f"{kind}_delta" if mode == "delta" else kind
         fingerprints[kind] = _fingerprint(deduplicated[kind])
-        if _is_recent_duplicate(user_id, kind, fingerprints[kind]):
+        if _is_duplicate(user_id, observation_kind, fingerprints[kind], source_fingerprint):
             summary.skipped_duplicates.append(kind)
             continue
-        if not allow_large_drop:
+        if mode == "snapshot" and not allow_large_drop:
             _check_large_drop(user_id, kind, deduplicated[kind])
 
     observed_local = local_now()
     observed_utc = utc_now()
     for kind in RELATIONSHIP_KINDS:
-        if kind not in deduplicated or kind in summary.skipped_duplicates:
+        if kind not in deduplicated or kind in summary.skipped_duplicates or kind in missing_baselines:
             continue
         items = deduplicated[kind]
-        gained, missing, reappeared, followed_again = save_followers(
-            kind, items, user_id, commit=False, observed_at=observed_local
-        )
+        if mode == "delta":
+            gained, missing, reappeared, followed_again = merge_follower_delta(
+                kind, items, user_id, commit=False, observed_at=observed_local
+            )
+            observation_kind = f"{kind}_delta"
+        else:
+            gained, missing, reappeared, followed_again = save_followers(
+                kind, items, user_id, commit=False, observed_at=observed_local
+            )
+            observation_kind = kind
         _record_history(user_id, kind, "gained", gained, observed_local)
         _record_history(user_id, kind, "missing", missing, observed_local)
         _record_history(user_id, kind, "reappeared", reappeared, observed_local)
         _record_history(user_id, kind, "followed_again", followed_again, observed_local)
-        _remember_observation(user_id, kind, fingerprints[kind])
+        _remember_observation(user_id, observation_kind, fingerprints[kind], source_fingerprint)
 
         # Existence proof from the opposite list. When both lists are in this
         # upload, the incoming one is authoritative; the database copy of the
@@ -341,10 +478,11 @@ def process_import_paths(paths, user_id, analysis_run_id=None, allow_large_drop=
                 row.username.casefold()
                 for row in Follower.query.filter_by(user_id=user_id, kind=opposite_kind, is_present=True).all()
             }
-        db.session.flush()
-        _resolve_known_profiles(
-            kind, known_existing, user_id, analysis_run_id, observed_local, observed_utc, summary
-        )
+        if mode == "snapshot":
+            db.session.flush()
+            _queue_profile_validations(
+                kind, known_existing, user_id, analysis_run_id, observed_utc, summary, missing
+            )
 
         summary.gained += len(gained)
         summary.reappeared += len(reappeared)
@@ -362,23 +500,22 @@ def process_import_paths(paths, user_id, analysis_run_id=None, allow_large_drop=
         else:
             summary.following_found = len(items)
 
-    for item in deduplicated.get("recently_unfollowed", []):
-        already_recorded = History.query.filter_by(
-            user_id=user_id,
-            username=item["username"],
-            kind="following",
-        ).filter(History.action.in_(("missing", "lost"))).first()
-        if not already_recorded:
-            db.session.add(
-                History(
-                    user_id=user_id,
-                    username=item["username"],
-                    action="missing",
-                    kind="following",
-                    date_added=item["date"] or observed_local,
-                )
-            )
-            summary.recent_unfollows += 1
-
+    db.session.flush()
+    scan_usernames = None
+    if mode == "delta":
+        scan_usernames = {
+            item["username"]
+            for kind in RELATIONSHIP_KINDS
+            for item in deduplicated.get(kind, [])
+            if kind not in missing_baselines
+        }
+    if not summary.is_duplicate:
+        _queue_profile_scans(
+            user_id,
+            analysis_run_id,
+            observed_utc,
+            summary,
+            usernames=scan_usernames,
+        )
     db.session.commit()
     return summary

@@ -208,6 +208,7 @@ a { color: inherit; }
 .relationship-user-copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .relationship-user-copy small { color: var(--muted); font-size: .66rem; font-weight: 500; }
 .user-initial { display: grid; flex: 0 0 34px; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--avatar-color); color: #fff; font-size: .7rem; font-weight: 800; }
+.user-avatar { display: block; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--surface-soft); }
 .external-mark { margin-left: auto; color: #777784; font-size: .78rem; }
 .list-empty { padding: 2rem 1rem; color: var(--muted); font-size: .8rem; text-align: center; }
 .activity-section { margin-bottom: 1rem; }
@@ -367,3 +368,11 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+.network-card { padding: 1.1rem 1.4rem; margin-bottom: 1rem; display: grid; gap: .9rem; min-width: 0; max-width: 100%; }
+.network-topline { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; flex-wrap: wrap; }
+.network-topline > div { display: grid; gap: .2rem; min-width: 0; }
+.network-topline span:not(.run-status) { color: var(--muted); font-size: .85rem; }
+.network-fallback { display: grid; gap: .25rem; }
+.network-fallback label { display: flex; align-items: center; gap: .55rem; font-size: .9rem; cursor: pointer; }
+.network-fallback small { color: var(--muted); }

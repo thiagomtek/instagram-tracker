@@ -8,7 +8,11 @@
 <div class="relationship-list">
     {% for username in users %}
     <a class="relationship-user" href="https://instagram.com/{{ username }}" target="_blank" rel="noopener noreferrer">
+        {% if avatar_ids and avatar_ids.get(username|lower) %}
+        <img class="user-avatar" src="{{ url_for('profile_avatar', follower_id=avatar_ids.get(username|lower)) }}" alt="" loading="lazy">
+        {% else %}
         <span class="user-initial" style="--avatar-color: {{ username|avatar_color }}">{{ username|initials }}</span>
+        {% endif %}
         <span class="relationship-user-copy">
             <strong>{{ username }}</strong>
             {% if dates and dates.get(username|lower) %}<small>{{ date_label }} {{ dates.get(username|lower)|format_date }}</small>{% endif %}
@@ -23,11 +27,11 @@
 
 <section class="page-heading dashboard-heading">
     <div>
-        <span class="eyebrow">Retrato da última exportação</span>
-        <h1>Situação atual</h1>
+        <span class="eyebrow">Retrato consolidado</span>
+        <h1>Situação conhecida</h1>
         <p>
-            {% if latest_run %}
-                Atualizado em {{ (latest_run.completed_at or latest_run.started_at)|local_datetime }}.
+            {% if latest_snapshot %}
+                Base completa de {{ (latest_snapshot.completed_at or latest_snapshot.started_at)|local_datetime }}{% if latest_run and latest_run.id != latest_snapshot.id %}; última atualização diária em {{ (latest_run.completed_at or latest_run.started_at)|local_datetime }}{% endif %}.
             {% else %}
                 Importe os dados do Instagram para montar seu primeiro retrato.
             {% endif %}
@@ -39,8 +43,8 @@
 <div class="snapshot-note" role="note">
     <span class="snapshot-note-icon" aria-hidden="true">✓</span>
     <div>
-        <strong>As listas separam perfis presentes e ausentes na exportação atual.</strong>
-        <p>Ausente não significa necessariamente que deixou de seguir: a conta pode estar desativada, excluída ou ter bloqueado você. Se voltar a aparecer, o sistema registra “reapareceu”.</p>
+        <strong>A base completa e as atualizações diárias têm funções diferentes.</strong>
+        <p>A exportação “Desde o início” substitui o retrato. A automática diária apenas acrescenta eventos do período e nunca transforma omissões em remoções. Ausente só vira remoção quando a conta é comprovadamente existente.</p>
     </div>
 </div>
 
@@ -49,7 +53,7 @@
     <div class="validation-progress-heading">
         <div>
             <span class="eyebrow">Validação assíncrona</span>
-            <h2>Verificação de perfis</h2>
+            <h2>Existência, fotos e relações</h2>
             <p id="validationProgressText">{{ validation_progress.completed }} de {{ validation_progress.total }} concluídas · {{ validation_progress.queued }} na fila{% if validation_progress.running %} · {{ validation_progress.running }} em validação{% endif %}</p>
             {% if validation_progress.next_attempt_formatted and (validation_progress.queued or validation_progress.running) %}
             <span class="validation-next-time" id="validationNextTime">{{ icon('clock', 14) }} Próxima averiguação prevista às {{ validation_progress.next_attempt_formatted }}</span>
@@ -77,7 +81,7 @@
         </div>
         {% endfor %}
     </div>
-    <p class="microcopy">As consultas são executadas uma por vez, com horários variados, para reduzir bloqueios do Instagram. Você será notificado quando o lote terminar.</p>
+    <p class="microcopy">Todos os usernames únicos (inclusive os já importados) são consultados duas vezes por perfil, um por vez e com horários variados. Existência e foto nunca alteram uma relação sem a regra específica de confirmação. Você será notificado ao terminar.</p>
 </section>
 {% endif %}
 
@@ -85,12 +89,12 @@
     <article class="metric-card">
         <span class="metric-label">Seguidores</span>
         <strong>{{ kpis.followers_total }}</strong>
-        <small>seguem você agora</small>
+        <small>no retrato consolidado</small>
     </article>
     <article class="metric-card">
         <span class="metric-label">Seguindo</span>
         <strong>{{ kpis.following_total }}</strong>
-        <small>você segue agora</small>
+        <small>no retrato consolidado</small>
     </article>
     <article class="metric-card positive">
         <span class="metric-label">Mútuos</span>
@@ -162,7 +166,7 @@
 
     <details class="relationship-card missing">
         <summary>
-            <span><strong>Ausentes entre os perfis que você seguia</strong><small>Aguardando validação antes de confirmar que você deixou de seguir.</small></span>
+            <span><strong>Ausentes entre os perfis que você seguia</strong><small>Sem conclusão enquanto o perfil não reaparecer ou sua existência não for comprovada.</small></span>
             <span class="count-pill">{{ absent_following_only|length }}</span>
         </summary>
         {{ user_list(absent_following_only, 'Nenhum perfil ausente nesta lista.', absent_following_only_dates, 'Ausente desde') }}

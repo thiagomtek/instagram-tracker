@@ -13,6 +13,48 @@
     <a href="{{ url_for('index') }}" class="btn btn-soft">Nova importação</a>
 </section>
 
+<section class="glass-card network-card" aria-label="Conexão das consultas ao Instagram">
+    <div class="network-topline">
+        <div>
+            <strong>Conexão das consultas ao Instagram</strong>
+            <span>
+                {% if not network.vpn_configured %}Nenhuma VPN configurada · saindo pela rede direta
+                {% elif network.route == 'vpn' %}Saindo pela VPN
+                {% elif network.route == 'direct' and network.vpn_up %}Instagram bloqueou o IP da VPN · saindo pela rede direta{% if network.vpn_avoid_until %} até {{ network.vpn_avoid_until|local_datetime }}, depois volta para a VPN{% endif %}
+                {% elif network.route == 'direct' %}VPN fora do ar · saindo pela rede direta
+                {% else %}VPN fora do ar · consultas em espera{% endif %}
+            </span>
+        </div>
+        <span class="run-status {{ 'success' if network.route == 'vpn' else ('failed' if network.route == 'paused' else 'processing') }}">
+            {% if network.route == 'vpn' %}VPN ativa{% elif network.route == 'paused' %}Em espera{% else %}Rede direta{% endif %}
+        </span>
+    </div>
+    <div class="processing-meta">
+        {% if network.vpn_configured %}
+        <span><small>VPN</small><strong>{{ 'Conectada' if network.vpn_up else 'Fora do ar' }}</strong></span>
+        <span><small>IP da VPN</small><strong>{{ network.vpn_ip or '—' }}</strong></span>
+        <span><small>Local da VPN</small><strong>{{ network.vpn_location or '—' }}</strong></span>
+        {% endif %}
+        <span><small>IP da rede direta</small><strong>{{ network.direct_ip or '—' }}</strong></span>
+        <span><small>Última verificação</small><strong>{{ network.checked_at|local_datetime if network.checked_at else 'Aguardando o worker' }}</strong></span>
+        {% if network.route_changed_at %}<span><small>Rota mudou em</small><strong>{{ network.route_changed_at|local_datetime }}</strong></span>{% endif %}
+    </div>
+    {% if network.blocked_until and network.blocked_until > now_utc %}
+    <div class="inline-notice warning">O Instagram bloqueou as consultas ({{ network.consecutive_blocks }} bloqueio(s) seguido(s)). Elas estão pausadas até {{ network.blocked_until|local_datetime }}.</div>
+    {% endif %}
+    {% if network.detail and network.vpn_configured %}<div class="inline-notice warning">{{ network.detail }}</div>{% endif %}
+    {% if network.vpn_configured %}
+    <form method="post" action="{{ url_for('network_fallback') }}" class="network-fallback">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+            <input type="checkbox" name="allow_direct_fallback" value="1" {{ 'checked' if network.allow_direct_fallback }} onchange="this.form.submit()">
+            Se a VPN cair, continuar pela rede direta
+        </label>
+        <small>Desmarcado, as consultas esperam a VPN voltar e seu IP nunca é exposto ao Instagram.</small>
+    </form>
+    {% endif %}
+</section>
+
 <section class="processing-list" aria-label="Histórico de processamentos">
     {% for run in pagination.items %}
     <article class="glass-card processing-card">
@@ -21,8 +63,8 @@
                 <div class="processing-source">
                     <span class="source-icon" aria-hidden="true">{{ 'G' if run.source == 'google_drive' else '⇧' }}</span>
                     <div>
-                        <strong>{{ 'Google Drive' if run.source == 'google_drive' else 'Importação manual' }}</strong>
-                        <span>{{ run.source_name }}</span>
+                        <strong>{% if run.source == 'google_drive' %}Google Drive{% elif run.source == 'profile_scan' %}Varredura de perfis{% else %}Importação manual{% endif %}</strong>
+                        <span>{{ run.source_name }} · {{ 'Atualização diária' if run.import_mode == 'delta' else 'Retrato completo' }}</span>
                     </div>
                 </div>
             </div>
@@ -90,6 +132,7 @@
         {% endif %}
 
         {% if run.error %}<div class="inline-notice danger mt-3">{{ run.error }}</div>{% endif %}
+        {% if run.result_note %}<div class="inline-notice info mt-3">{{ run.result_note }}</div>{% endif %}
         {% if run.cleanup_error %}<div class="inline-notice warning mt-3">A análise foi salva, mas a origem não pôde ser excluída do Drive: {{ run.cleanup_error }}</div>{% endif %}
     </article>
     {% else %}

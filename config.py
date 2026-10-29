@@ -60,25 +60,32 @@ class Config:
     # profiles of a list is rejected unless the user explicitly confirms it.
     IMPORT_MASS_DROP_RATIO = float(os.environ.get("IMPORT_MASS_DROP_RATIO", "0.3"))
     IMPORT_MASS_DROP_MIN = _int("IMPORT_MASS_DROP_MIN", 20)
-    # The same snapshot sent again inside this window is ignored instead of
-    # counting as another observation of the profiles that are missing.
+    # Compatibility window for observations created before source hashes were
+    # stored. New imports recognize the same submitted export permanently.
     IMPORT_DUPLICATE_WINDOW_HOURS = _int("IMPORT_DUPLICATE_WINDOW_HOURS", 12)
 
-    # Profile checks are deliberately serialized, delayed and jittered. This
-    # keeps imports responsive and avoids bursts against Instagram.
+    # Profile checks are serialized (one at a time) with no artificial waiting.
     PROFILE_VALIDATION_ENABLED = _flag("PROFILE_VALIDATION_ENABLED", True)
-    PROFILE_VALIDATION_INITIAL_MIN_SECONDS = _int("PROFILE_VALIDATION_INITIAL_MIN_SECONDS", 1800)
-    PROFILE_VALIDATION_INITIAL_MAX_SECONDS = _int("PROFILE_VALIDATION_INITIAL_MAX_SECONDS", 10800)
-    PROFILE_VALIDATION_GAP_MIN_SECONDS = _int("PROFILE_VALIDATION_GAP_MIN_SECONDS", 600)
-    PROFILE_VALIDATION_GAP_MAX_SECONDS = _int("PROFILE_VALIDATION_GAP_MAX_SECONDS", 1800)
-    PROFILE_VALIDATION_RETRY_MIN_SECONDS = _int("PROFILE_VALIDATION_RETRY_MIN_SECONDS", 21600)
-    PROFILE_VALIDATION_RETRY_MAX_SECONDS = _int("PROFILE_VALIDATION_RETRY_MAX_SECONDS", 64800)
+    PROFILE_SCAN_ALL_ENABLED = _flag("PROFILE_SCAN_ALL_ENABLED", True)
     PROFILE_VALIDATION_MAX_ATTEMPTS = _int("PROFILE_VALIDATION_MAX_ATTEMPTS", 3)
     PROFILE_VALIDATION_PAGE_TIMEOUT_MS = _int("PROFILE_VALIDATION_PAGE_TIMEOUT_MS", 45000)
-    PROFILE_VALIDATION_RENDER_MIN_MS = _int("PROFILE_VALIDATION_RENDER_MIN_MS", 8000)
-    PROFILE_VALIDATION_RENDER_MAX_MS = _int("PROFILE_VALIDATION_RENDER_MAX_MS", 20000)
     # A check still "running" after this long belongs to a dead worker.
     PROFILE_VALIDATION_STALE_SECONDS = _int("PROFILE_VALIDATION_STALE_SECONDS", 900)
+    # When Instagram blocks a request the browser identity (user agent, viewport,
+    # language) is swapped and the request repeated, up to this many identities
+    # per check. If every identity is blocked, web checks pause for a cooldown
+    # that doubles on each consecutive block, up to the maximum.
+    PROFILE_VALIDATION_IDENTITY_ROTATIONS = _int("PROFILE_VALIDATION_IDENTITY_ROTATIONS", 3)
+    PROFILE_VALIDATION_BLOCK_COOLDOWN_SECONDS = _int("PROFILE_VALIDATION_BLOCK_COOLDOWN_SECONDS", 300)
+    PROFILE_VALIDATION_BLOCK_COOLDOWN_MAX_SECONDS = _int("PROFILE_VALIDATION_BLOCK_COOLDOWN_MAX_SECONDS", 3600)
+    # Random pause between two web requests to Instagram, to stay under its rate limit.
+    PROFILE_VALIDATION_MIN_INTERVAL_SECONDS = _int("PROFILE_VALIDATION_MIN_INTERVAL_SECONDS", 12)
+    PROFILE_VALIDATION_MAX_INTERVAL_SECONDS = _int("PROFILE_VALIDATION_MAX_INTERVAL_SECONDS", 30)
+    # After Instagram blocks the VPN address, the direct network is used for this
+    # long before going back to the VPN.
+    PROFILE_VALIDATION_VPN_AVOID_SECONDS = _int("PROFILE_VALIDATION_VPN_AVOID_SECONDS", 1800)
+    # HTTP proxy of the VPN container. Empty means Instagram is reached directly.
+    PROFILE_VALIDATION_PROXY = os.environ.get("PROFILE_VALIDATION_PROXY", "")
 
     PUSH_VAPID_PUBLIC_KEY = os.environ.get("PUSH_VAPID_PUBLIC_KEY", "")
     PUSH_VAPID_PRIVATE_KEY = os.environ.get("PUSH_VAPID_PRIVATE_KEY", "")

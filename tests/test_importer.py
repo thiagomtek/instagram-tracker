@@ -13,9 +13,10 @@ from models.integration import AnalysisRun, RelationshipValidation
 from models.system import ImportObservation
 from models.user import User
 from services.analysis_runs import complete_analysis_run
-from services.clock import local_now
+from services.clock import local_now, utc_now
 from services.importer import ImportRejected, process_import_paths
 from services.parser import parse_instagram_date
+from services.profile_validation import process_next_validation
 from services.storage import load_followers, save_followers
 
 
@@ -32,7 +33,10 @@ def relationship_html(usernames):
 
 class ImporterTest(unittest.TestCase):
     def setUp(self):
-        app.config.update(TESTING=True, SESSION_COOKIE_SECURE=False)
+        app.config.update(
+            TESTING=True, SESSION_COOKIE_SECURE=False, PROFILE_SCAN_ALL_ENABLED=False,
+            PROFILE_VALIDATION_MIN_INTERVAL_SECONDS=0, PROFILE_VALIDATION_MAX_INTERVAL_SECONDS=0,
+        )
         self.context = app.app_context()
         self.context.push()
         db.session.remove()
@@ -45,6 +49,7 @@ class ImporterTest(unittest.TestCase):
         self.user_id = user.id
 
     def tearDown(self):
+        app.config["PROFILE_SCAN_ALL_ENABLED"] = True
         db.session.remove()
         db.drop_all()
         self.context.pop()
@@ -68,6 +73,59 @@ class ImporterTest(unittest.TestCase):
             {"ana", "bia"},
         )
         self.assertEqual(History.query.filter_by(user_id=self.user_id, action="lost").count(), 0)
+
+    def test_complete_snapshot_queues_one_profile_scan_per_unique_username(self):
+        app.config["PROFILE_SCAN_ALL_ENABLED"] = True
+        run = AnalysisRun(user_id=self.user_id, source="manual", source_name="full.zip")
+        db.session.add(run)
+        db.session.commit()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            followers = self.write(temp_dir, "followers_1.html", ["ana", "bia"])
+            following = self.write(temp_dir, "following.html", ["ana", "caio"])
+            summary = process_import_paths([followers, following], self.user_id, analysis_run_id=run.id)
+
+        scans = RelationshipValidation.query.filter_by(purpose="profile_scan").all()
+        self.assertEqual(summary.validation_total, 3)
+        self.assertEqual({item.username for item in scans}, {"ana", "bia", "caio"})
+
+    def test_repeated_snapshot_scans_only_profiles_never_checked(self):
+        app.config["PROFILE_SCAN_ALL_ENABLED"] = True
+        with tempfile.TemporaryDirectory() as temp_dir:
+            followers = self.write(temp_dir, "followers_1.html", ["ana", "bia"])
+            following = self.write(temp_dir, "following.html", ["ana", "caio"])
+            process_import_paths([followers, following], self.user_id)
+            for row in Follower.query.all():
+                row.profile_checked_at = utc_now()
+                row.profile_status = "exists"
+            RelationshipValidation.query.delete()
+            db.session.commit()
+
+            self.write(temp_dir, "followers_1.html", ["ana", "bia", "duda"])
+            summary = process_import_paths([followers, following], self.user_id)
+
+        scans = RelationshipValidation.query.filter_by(purpose="profile_scan").all()
+        self.assertEqual({item.username for item in scans}, {"duda"})
+        self.assertEqual(summary.validation_total, 1)
+
+    def test_snapshot_validates_only_profiles_that_just_left_the_list(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            followers = self.write(temp_dir, "followers_1.html", ["ana", "bia", "caio"])
+            process_import_paths([followers], self.user_id)
+            self.write(temp_dir, "followers_1.html", ["ana", "caio"])
+            process_import_paths([followers], self.user_id)
+            bia = Follower.query.filter_by(username="bia", kind="followers").first()
+            # Settled earlier: unavailable after its retest, kept in "absent".
+            bia.state = "absent"
+            bia.validation_status = "completed"
+            RelationshipValidation.query.delete()
+            db.session.commit()
+
+            self.write(temp_dir, "followers_1.html", ["ana"])
+            summary = process_import_paths([followers], self.user_id)
+
+        queued = RelationshipValidation.query.filter_by(purpose="relationship").all()
+        self.assertEqual({item.username for item in queued}, {"caio"})
+        self.assertEqual(summary.validation_total, 1)
 
     def test_reads_complete_zip_and_removes_missing_follower(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -187,7 +245,7 @@ class ImporterTest(unittest.TestCase):
         self.assertIn("user_pending", reappeared)
         self.assertIn("user_removed", followed_again)
 
-    def test_cross_list_detection_resolves_without_scraping(self):
+    def test_cross_list_detection_is_resolved_asynchronously_without_scraping(self):
         db.session.add(Follower(
             user_id=self.user_id, kind="following", username="active_friend", is_present=True, state="present"
         ))
@@ -204,10 +262,21 @@ class ImporterTest(unittest.TestCase):
 
             summary = process_import_paths([archive], self.user_id)
 
+        validation = RelationshipValidation.query.filter_by(
+            user_id=self.user_id, username="active_friend", kind="followers"
+        ).first()
+        self.assertEqual(validation.evidence, "opposite_list")
+        self.assertEqual(validation.status, "queued")
+        validation.next_attempt_at = utc_now() - timedelta(seconds=1)
+        db.session.commit()
+
         follower = Follower.query.filter_by(user_id=self.user_id, kind="followers", username="active_friend").first()
+        process_next_validation()
+        db.session.refresh(follower)
         self.assertEqual(follower.state, "removed")
         self.assertEqual(follower.last_validation_result, "relationship_removed")
-        self.assertEqual(summary.followers_lost, 1)
+        self.assertEqual(summary.validation_total, 1)
+        self.assertEqual(summary.followers_lost, 0)
         self.assertIsNotNone(History.query.filter_by(user_id=self.user_id, username="active_friend", action="lost").first())
 
     # ----- safeguards against destroying the snapshot
@@ -258,7 +327,7 @@ class ImporterTest(unittest.TestCase):
         self.assertNotEqual(profile.state, "removed")
         self.assertEqual(History.query.filter_by(action="lost").count(), 0)
 
-    def test_second_distinct_export_after_the_window_confirms_removal(self):
+    def test_same_source_is_still_duplicate_after_the_legacy_window(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             followers = self.write(temp_dir, "followers_1.html", ["a", "b", "c"])
             following = self.write(temp_dir, "following.html", ["a", "b", "c"])
@@ -270,8 +339,26 @@ class ImporterTest(unittest.TestCase):
             db.session.commit()
             summary = process_import_paths([followers, following], self.user_id)
 
-        self.assertEqual(summary.followers_lost, 1)
-        self.assertEqual(Follower.query.filter_by(username="c", kind="followers").first().state, "removed")
+        self.assertTrue(summary.is_duplicate)
+        self.assertEqual(Follower.query.filter_by(username="c", kind="followers").first().missing_count, 1)
+
+    def test_renamed_zip_with_same_internal_export_is_duplicate(self):
+        manifest = "<html><body><aside>Gerado em 23/10/2026 10:51 UTC</aside></body></html>"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = Path(temp_dir) / "first.zip"
+            second = Path(temp_dir) / "second.zip"
+            for archive, root in ((first, "export-token-a"), (second, "export-token-b")):
+                with ZipFile(archive, "w") as zip_file:
+                    zip_file.writestr(f"{root}/start_here.html", manifest)
+                    zip_file.writestr(
+                        f"{root}/connections/followers_and_following/followers_1.html",
+                        relationship_html(["ana"]),
+                    )
+            process_import_paths([first], self.user_id)
+            summary = process_import_paths([second], self.user_id)
+
+        self.assertTrue(summary.is_duplicate)
+        self.assertEqual(Follower.query.count(), 1)
 
     def test_opposite_list_from_this_upload_wins_over_the_stale_database_copy(self):
         # "c" is still followed in the database, but this upload drops "c" from
@@ -302,7 +389,7 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(summary.followers_missing, 1)
         self.assertEqual(RelationshipValidation.query.count(), 0)
 
-    def test_counters_of_validations_resolved_during_import_survive_completion(self):
+    def test_counters_of_async_cross_list_validations_survive_completion(self):
         run = AnalysisRun(user_id=self.user_id, source="manual", source_name="x")
         db.session.add(run)
         db.session.commit()
@@ -313,6 +400,13 @@ class ImporterTest(unittest.TestCase):
             self.write(temp_dir, "followers_1.html", ["a", "b"])
             summary = process_import_paths([followers, following], self.user_id, analysis_run_id=run.id)
         complete_analysis_run(run, summary)
+        validation = RelationshipValidation.query.filter_by(
+            analysis_run_id=run.id, username="c", kind="followers"
+        ).first()
+        validation.next_attempt_at = utc_now() - timedelta(seconds=1)
+        db.session.commit()
+        process_next_validation()
+        db.session.refresh(run)
 
         self.assertEqual((run.validation_total, run.validation_completed), (1, 1))
 
@@ -349,6 +443,149 @@ class ImporterTest(unittest.TestCase):
                 zip_file.writestr("media/photo.jpg", b"x" * 1024)
             summary = process_import_paths([archive], self.user_id)
         self.assertEqual(summary.files_read, 1)
+
+    def test_macos_metadata_and_start_page_are_not_counted_as_relationship_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "export.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", "<html>índice</html>")
+                zip_file.writestr(
+                    "export/connections/followers_and_following/followers_1.html",
+                    relationship_html(["ana"]),
+                )
+                zip_file.writestr(
+                    "__MACOSX/export/connections/followers_and_following/._followers_1.html",
+                    b"metadata",
+                )
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.files_read, 1)
+        self.assertEqual(summary.followers_found, 1)
+
+    def test_recently_unfollowed_auxiliary_file_does_not_create_current_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "export.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr(
+                    "connections/followers_and_following/followers_1.html",
+                    relationship_html(["ana"]),
+                )
+                zip_file.writestr(
+                    "connections/followers_and_following/recently_unfollowed_profiles.html",
+                    relationship_html(["perfil_antigo"]),
+                )
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.files_read, 2)
+        self.assertEqual(summary.recent_unfollows, 0)
+        self.assertEqual(History.query.count(), 0)
+
+    def test_ignores_bounded_delta_until_a_complete_baseline_exists(self):
+        manifest = """
+        <html><body>
+          <aside>Gerado por conta em 24/10/2026.
+          Contém os dados de 23/10/2026 a 24/10/2026 que você solicitou</aside>
+          <a href="connections/followers_and_following/followers_1.html">Seguidores</a>
+        </body></html>
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "partial.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", manifest)
+                zip_file.writestr(
+                    "export/connections/followers_and_following/followers_1.html",
+                    relationship_html(["ana"]),
+                )
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.mode, "delta")
+        self.assertIn("ainda não existe uma base completa", summary.note)
+        self.assertEqual(Follower.query.count(), 0)
+        self.assertEqual(History.query.count(), 0)
+
+    def test_bounded_delta_adds_entries_without_marking_omissions_missing(self):
+        manifest = """
+        <html><body>
+          <aside>Contém os dados de 23/10/2026 a 24/10/2026 que você solicitou</aside>
+          <a href="connections/followers_and_following/followers_1.html">Seguidores</a>
+        </body></html>
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            baseline = self.write(temp_dir, "followers_1.html", ["ana", "bia"])
+            process_import_paths([baseline], self.user_id)
+            archive = Path(temp_dir) / "daily.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", manifest)
+                zip_file.writestr(
+                    "export/connections/followers_and_following/followers_1.html",
+                    relationship_html(["caio"]),
+                )
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.mode, "delta")
+        self.assertEqual(summary.followers_gained, 1)
+        self.assertEqual(summary.followers_missing, 0)
+        self.assertEqual(
+            {item.username for item in Follower.query.filter_by(kind="followers", is_present=True)},
+            {"ana", "bia", "caio"},
+        )
+
+    def test_empty_bounded_delta_is_a_successful_noop(self):
+        manifest = """
+        <html><body><aside>
+          Contém os dados de 23/10/2026 a 24/10/2026 que você solicitou
+        </aside></body></html>
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "daily-empty.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", manifest)
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.mode, "delta")
+        self.assertEqual(summary.files_read, 0)
+        self.assertIn("nenhum evento", summary.note)
+
+    def test_delta_processes_only_kinds_that_have_a_complete_baseline(self):
+        manifest = """
+        <html><body><aside>
+          Contém os dados de 23/10/2026 a 24/10/2026 que você solicitou
+        </aside></body></html>
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            baseline = self.write(temp_dir, "followers_1.html", ["ana"])
+            process_import_paths([baseline], self.user_id)
+            archive = Path(temp_dir) / "mixed-daily.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", manifest)
+                zip_file.writestr("export/followers_1.html", relationship_html(["bia"]))
+                zip_file.writestr("export/following.html", relationship_html(["caio"]))
+            summary = process_import_paths([archive], self.user_id)
+
+        self.assertEqual(summary.followers_gained, 1)
+        self.assertIn("seguindo", summary.note)
+        self.assertEqual(Follower.query.filter_by(kind="following").count(), 0)
+
+    def test_rejects_manifest_whose_relationship_files_are_missing(self):
+        manifest = """
+        <html><body>
+          <aside>Gerado por conta em 24/10/2026.</aside>
+          <a href="connections/followers_and_following/followers_1.html">Seguidores</a>
+          <a href="connections/followers_and_following/following.html">Seguindo</a>
+        </body></html>
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "incomplete.zip"
+            with ZipFile(archive, "w") as zip_file:
+                zip_file.writestr("export/start_here.html", manifest)
+                zip_file.writestr(
+                    "export/connections/followers_and_following/followers_1.html",
+                    relationship_html(["ana"]),
+                )
+            with self.assertRaisesRegex(ImportRejected, "arquivo de seguindo"):
+                process_import_paths([archive], self.user_id)
+
+        self.assertEqual(Follower.query.count(), 0)
 
 
 if __name__ == "__main__":

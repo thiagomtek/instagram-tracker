@@ -18,12 +18,19 @@
                     <label for="email" class="form-label">E-mail</label>
                     <input type="email" class="form-control auth-input" id="email" name="email" autocomplete="email" required autofocus>
                 </div>
-                <div class="mb-4">
+                <div class="mb-3">
                     <label for="password" class="form-label">Senha</label>
                     <div class="input-group">
                         <input type="password" class="form-control auth-input" id="password" name="password" autocomplete="current-password" required>
                         <button class="btn btn-outline-light password-toggle" type="button" data-password-toggle="password" aria-label="Mostrar senha">Mostrar</button>
                     </div>
+                </div>
+                <div class="form-check mb-4">
+                    <input class="form-check-input" type="checkbox" id="remember" name="remember" checked>
+                    <label class="form-check-label" for="remember">
+                        Manter sessão conectada
+                        <span class="d-block text-secondary small">A sessão não expira e fica ativa para sempre neste dispositivo, até você sair.</span>
+                    </label>
                 </div>
                 <button type="submit" class="btn btn-insta w-100 py-3">Entrar</button>
             </form>

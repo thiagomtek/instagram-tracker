@@ -97,6 +97,62 @@ def save_followers(kind, new_data_list, user_id, commit=True, observed_at=None):
     )
 
 
+def merge_follower_delta(kind, new_data_list, user_id, commit=True, observed_at=None):
+    """Merge a bounded-date export without treating omitted profiles as absent.
+
+    Meta's automatic daily exports are event slices. Entries prove presence,
+    but a username omitted from that short period says nothing about its
+    current relationship state.
+    """
+    existing_items = Follower.query.filter_by(user_id=user_id, kind=kind).all()
+    existing_by_key = {item.username.casefold(): item for item in existing_items}
+    incoming_by_key = {item["username"].casefold(): item for item in new_data_list}
+    observed_at = observed_at or local_now()
+    incoming_dates = {key: item["date"] or observed_at for key, item in incoming_by_key.items()}
+    gained = []
+    reappeared = []
+    followed_again = []
+
+    for key, item in incoming_by_key.items():
+        existing = existing_by_key.get(key)
+        if existing is None:
+            db.session.add(Follower(
+                user_id=user_id,
+                username=item["username"],
+                kind=kind,
+                date_added=incoming_dates[key],
+            ))
+            gained.append(item["username"])
+            continue
+
+        if not existing.is_present:
+            cancel_relationship_validations(existing)
+            if existing.state == "removed":
+                followed_again.append(item["username"])
+            else:
+                reappeared.append(item["username"])
+        existing.username = item["username"]
+        if item["date"]:
+            existing.date_added = item["date"]
+        existing.is_present = True
+        existing.missing_since = None
+        existing.state = "present"
+        existing.missing_count = 0
+        existing.retest_count = 0
+        existing.validation_status = "idle"
+        existing.last_validation_result = None
+
+    if commit:
+        db.session.commit()
+
+    return (
+        order_usernames_newest_first(gained, incoming_dates),
+        [],
+        order_usernames_newest_first(reappeared, incoming_dates),
+        order_usernames_newest_first(followed_again, incoming_dates),
+    )
+
+
 def load_followers(kind, user_id):
     """Return the latest exact snapshot for one relationship kind."""
     return [

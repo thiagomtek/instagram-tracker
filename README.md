@@ -21,6 +21,8 @@ O Tracker **nunca pede a senha do Instagram**. Ele trabalha com os arquivos que 
 - **PWA e Web Push:** instalável no celular, com aviso quando uma análise ou uma validação termina.
 - **Várias contas, dados isolados:** cada usuário vê, altera e apaga apenas os próprios dados. Há troca de senha e exclusão de conta.
 - **Sem arquivos residuais:** uploads, ZIPs e pastas baixadas são processados em diretórios temporários e removidos ao final.
+- **Dois formatos de exportação:** o retrato manual “Desde o início” substitui as listas; a entrega automática diária é mesclada como delta e nunca transforma uma omissão do dia em remoção.
+- **Varredura incremental de perfis:** a importação compara o retrato com a base (entrou, saiu, reapareceu) e só consulta o Instagram para perfis nunca verificados (novos) e para os que acabaram de sair da lista; quem já foi verificado não é consultado de novo. Cada consulta tem duas tentativas por usuário. O app registra se a conta existe e tenta guardar a foto retornada pelo Instagram (até 1 MB) no próprio SQLite, servida apenas ao usuário autenticado.
 
 ## O que sai do seu servidor
 
@@ -29,7 +31,7 @@ Seja transparente com você mesmo sobre estas duas integrações:
 | Integração | Quando | O que acontece |
 |---|---|---|
 | **Google Drive** | Somente se você vincular uma conta | O worker lê o Meu Drive e move para a lixeira as pastas `meta-*` processadas. O escopo OAuth é `drive` (acesso total), pois o Google não oferece um escopo menor que baixe e remova arquivos criados por outro app. O refresh token fica criptografado no SQLite. |
-| **Consulta a perfis no Instagram** | Quando um perfil some da lista e a outra lista não prova que ele existe | O worker abre a página pública do perfil em um Chromium sem login, **uma consulta por vez, com intervalos de 10 a 30 minutos**. Isso não é uma API oficial e pode contrariar os termos do Instagram. Desative com `PROFILE_VALIDATION_ENABLED=false`. |
+| **Consulta a perfis no Instagram** | Para perfis novos (nunca verificados) e para validar relações que acabaram de sumir | O worker abre a página pública do perfil em um Chromium sem login, **uma consulta por vez, sem tempo de espera entre elas**. Registra existência e foto quando disponível. Isso não é uma API oficial e pode contrariar os termos do Instagram. Desative com `PROFILE_VALIDATION_ENABLED=false`. |
 
 Fora isso, o app carrega apenas Bootstrap (CDN, com verificação SRI) e a fonte Inter (Google Fonts). O Plotly é servido pelo próprio app.
 
@@ -155,6 +157,15 @@ Seguidores grandes são divididos em `followers_1.html`, `followers_2.html`… *
 
 ---
 
+## Retrato completo versus atualização diária
+
+- A exportação manual de **Seguidores e seguindo** com período **Desde o início** contém o retrato completo. Ela cria a base e permite detectar quem desapareceu desde o retrato anterior.
+- A exportação automática diária declara no `start_here.html` um intervalo curto. Ela contém apenas eventos desse período. O Tracker acrescenta perfis presentes, mas jamais considera ausente quem não apareceu naquele dia.
+- Se uma atualização diária chegar antes da primeira base completa, ela é registrada e ignorada. Faça ao menos uma importação manual “Desde o início”.
+- A entrega diária não possui um evento confiável para “alguém deixou de seguir você”; essa conclusão exige uma nova exportação completa e a validação de existência do perfil.
+
+---
+
 ## Como as remoções são confirmadas
 
 Um perfil que some de uma exportação **não significa necessariamente** que deixou de seguir: a conta pode ter sido desativada, excluída, ou ter bloqueado você. Por isso cada relação segue um ciclo de estados:
@@ -164,7 +175,7 @@ present ──(sumiu da exportação)──▶ pending ──┬─(outra lista 
    ▲                                          │                                               ▼
    │                                          └─(consulta ao Instagram)─▶ existe ───────▶ confirmação
    │                                                     │
-   │                                                     └─▶ indisponível ─▶ absent ─(reteste)─▶ untestable
+   │                                                     └─▶ indisponível ─▶ absent ─(reteste)─▶ absent
    └────────────(voltou a aparecer em qualquer exportação: "reapareceu")
 ```
 
@@ -172,21 +183,20 @@ present ──(sumiu da exportação)──▶ pending ──┬─(outra lista 
 |---|---|---|
 | `present` | Está na exportação atual. | Listas e KPIs. |
 | `pending` | Sumiu de uma exportação; aguardando validação. | *Ausentes* (e mudança "ficou ausente"). |
-| `absent` | O perfil estava indisponível numa consulta; um reteste está agendado. | *Ausentes*. |
+| `absent` | O perfil está indisponível ou a consulta não pôde comprovar que ele existe; mesmo após o reteste, permanece sem gerar conclusão. | *Ausentes*. |
 | `removed` | Remoção **confirmada**. Se a pessoa voltar, é registrado "voltou a seguir". | Atividade ("confirmado"); sai das *Ausentes*. |
-| `untestable` | Continuou indisponível após o reteste (conta excluída, desativada ou que bloqueou você). | Card **Perfis indisponíveis**. |
 
 A **remoção é confirmada** quando duas condições se cumprem:
 
 1. o perfil **existe** — provado pela presença dele na lista oposta (ex.: some de *seguidores* mas continua em *seguindo*) ou por uma consulta ao Instagram; e
-2. ele continua fora da lista em **2 exportações distintas**. Enviar o mesmo arquivo duas vezes não conta como duas exportações.
+2. ele está fora do retrato atual da lista correspondente. Uma segunda exportação não é necessária quando a existência já foi comprovada.
 
 Daí os números do painel: "novos", "aguardando validação", "remoções confirmadas", "reapareceram" e "voltaram a seguir". Uma consulta inconclusiva é repetida até `PROFILE_VALIDATION_MAX_ATTEMPTS` vezes e depois ganha um único reteste.
 
 ### Proteções de importação
 
 - **Lista vazia ou queda brusca** (por padrão, ao menos 20 perfis e 30% da lista) é recusada com a mensagem "Nada foi alterado" até você marcar a confirmação. Isso protege contra um `followers_2.html` esquecido ou contra mudança no layout do arquivo do Instagram.
-- **Mesmo arquivo reenviado** dentro de 12 horas é ignorado, sem alterar contadores.
+- **Mesmo arquivo reenviado** é reconhecido pelo conteúdo e sempre ignorado, sem alterar contadores. Bancos antigos sem essa impressão usam a janela de 12 horas como compatibilidade.
 - Uma importação recusada ou com erro **não altera nenhum dado**.
 
 ## Datas e fuso horário

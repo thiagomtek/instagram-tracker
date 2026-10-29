@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 
 import plotly
 import requests
-from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 from google_auth_oauthlib.flow import Flow
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -29,10 +29,11 @@ from models.integration import AnalysisRun, DriveConnection, DriveImport, PushSu
 from models.system import ImportObservation
 from models.user import User
 from services.analysis_runs import complete_analysis_run, fail_analysis_run, start_analysis_run
-from services.clock import local_now
+from services.clock import local_now, utc_now
 from services.compare import cross_reference
 from services.google_drive import google_drive_is_configured
 from services.importer import ImportRejected, process_import_paths
+from services.network import get_status as get_network_status, set_direct_fallback
 from services.notifications import send_analysis_notification
 from services.presentation import (
     build_validation_progress,
@@ -102,7 +103,10 @@ def initialize_database(attempts=6):
                 create_initial_admin()
             return
         except (OperationalError, IntegrityError):
-            db.session.remove()
+            # The context used by the failed attempt has already closed.
+            # Open a fresh one before touching Flask-SQLAlchemy's scoped session.
+            with app.app_context():
+                db.session.remove()
             if attempt == attempts:
                 raise
             app.logger.warning("Inicialização concorrente do banco; tentativa %s/%s repetida.", attempt, attempts)
@@ -130,11 +134,12 @@ def registration_open():
     return app.config["ALLOW_REGISTRATION"] or User.query.count() == 0
 
 
-def start_session(user):
+def start_session(user, remember=True):
     session.clear()
     session["user_id"] = user.id
     session["epoch"] = user.session_epoch
-    session.permanent = True
+    session["remember"] = remember
+    session.permanent = remember
 
 
 def json_list(raw):
@@ -147,11 +152,23 @@ def json_list(raw):
 
 def erase_analysis_data(user_id):
     """Remove everything derived from imports; the account and Drive link stay."""
-    run_ids = [row.id for row in AnalysisRun.query.filter_by(user_id=user_id).with_entities(AnalysisRun.id)]
     RelationshipValidation.query.filter_by(user_id=user_id).delete()
-    if run_ids:
-        DriveImport.query.filter(DriveImport.analysis_run_id.in_(run_ids)).update(
-            {DriveImport.analysis_run_id: None}, synchronize_session=False
+    connection_ids = [
+        row.id
+        for row in DriveConnection.query.filter_by(user_id=user_id).with_entities(DriveConnection.id)
+    ]
+    if connection_ids:
+        DriveImport.query.filter(DriveImport.connection_id.in_(connection_ids)).delete(
+            synchronize_session=False
+        )
+        DriveConnection.query.filter(DriveConnection.id.in_(connection_ids)).update(
+            {
+                DriveConnection.last_success_at: None,
+                DriveConnection.last_error: None,
+                DriveConnection.last_import_summary: None,
+                DriveConnection.sync_requested: False,
+            },
+            synchronize_session=False,
         )
     AnalysisRun.query.filter_by(user_id=user_id).delete()
     History.query.filter_by(user_id=user_id).delete()
@@ -221,7 +238,7 @@ def login_required(view):
             session.clear()
             return redirect(url_for("login"))
         g.user = user
-        session.permanent = True
+        session.permanent = session.get("remember", True)
         return view(*args, **kwargs)
 
     return wrapped_view
@@ -352,7 +369,7 @@ def login():
         valid = check_password_hash(user.password_hash if user else _DUMMY_PASSWORD_HASH, password)
         if user and valid:
             clear_failures(client, email)
-            start_session(user)
+            start_session(user, remember=request.form.get("remember") == "on")
             return redirect(url_for("index"))
 
         register_failure(client, email)
@@ -702,6 +719,17 @@ def validation_status():
     return jsonify(build_validation_progress(session["user_id"]))
 
 
+@app.route("/profile-avatar/<int:follower_id>")
+@login_required
+def profile_avatar(follower_id):
+    follower = db.session.get(Follower, follower_id)
+    if not follower or follower.user_id != session["user_id"] or not follower.avatar_data:
+        abort(404)
+    response = Response(follower.avatar_data, mimetype=follower.avatar_mime or "image/jpeg")
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
 # --------------------------------------------------------------------------- dashboard
 
 def _date_argument(name, default):
@@ -723,8 +751,11 @@ def _relationship_snapshot(user_id):
     present = {"followers": {}, "following": {}}
     absent = {"followers": {}, "following": {}}
     unavailable = {}
+    avatar_ids = {}
     for item in records:
         key = item.username.casefold()
+        if item.avatar_data:
+            avatar_ids.setdefault(key, item.id)
         if item.is_present:
             present[item.kind][key] = item
         elif item.state in ("pending", "absent"):
@@ -732,7 +763,11 @@ def _relationship_snapshot(user_id):
         elif item.state == "untestable":
             unavailable.setdefault(key, item)
 
-    uncertain = set(absent["followers"]) | set(absent["following"])
+    # A profile that disappeared is never eligible for a relationship
+    # conclusion until it either reappears in an export or its existence is
+    # positively proved. This includes profiles that remained unavailable
+    # after the web retest (deleted, deactivated or possibly blocking us).
+    uncertain = set(absent["followers"]) | set(absent["following"]) | set(unavailable)
     followers = {key: item for key, item in present["followers"].items() if key not in uncertain}
     following = {key: item for key, item in present["following"].items() if key not in uncertain}
     not_following_back, fans, mutuals = cross_reference(
@@ -781,6 +816,7 @@ def _relationship_snapshot(user_id):
         "absent_total": len(uncertain),
         "unavailable": order_usernames_newest_first([item.username for item in unavailable.values()], unavailable_dates),
         "unavailable_dates": unavailable_dates,
+        "avatar_ids": avatar_ids,
     }
 
 
@@ -860,6 +896,12 @@ def dashboard():
         .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.started_at.desc(), AnalysisRun.id.desc())
         .first()
     )
+    latest_snapshot = (
+        AnalysisRun.query.filter_by(user_id=user_id, import_mode="snapshot")
+        .filter(AnalysisRun.status.in_(("success", "cleanup_failed")))
+        .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.started_at.desc(), AnalysisRun.id.desc())
+        .first()
+    )
 
     return render_template(
         "dashboard.html",
@@ -872,6 +914,7 @@ def dashboard():
         plotly_version=plotly.__version__,
         kpis=kpis,
         latest_run=latest_run,
+        latest_snapshot=latest_snapshot,
         filters={
             "start": start_text,
             "end": end_text,
@@ -932,7 +975,22 @@ def processing_history():
             format_validation_attempt_time(next_attempt.get(run.id)) if pending and next_attempt.get(run.id) else None
         )
 
-    return render_template("processing_history.html", pagination=pagination)
+    network = get_network_status()
+    db.session.commit()
+    return render_template("processing_history.html", pagination=pagination, network=network, now_utc=utc_now())
+
+
+@app.route("/network/fallback", methods=["POST"])
+@login_required
+def network_fallback():
+    allowed = request.form.get("allow_direct_fallback") == "1"
+    set_direct_fallback(allowed)
+    flash(
+        "Se a VPN cair, as consultas sairão pela rede direta." if allowed
+        else "Se a VPN cair, as consultas ficarão em espera até ela voltar.",
+        "success",
+    )
+    return redirect(url_for("processing_history"))
 
 
 if __name__ == "__main__":

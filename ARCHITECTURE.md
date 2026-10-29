@@ -5,7 +5,7 @@ Este documento descreve a arquitetura lógica, as convenções do código e os r
 ## Componentes
 
 - **Web:** aplicação Flask executada pelo Gunicorn (2 processos, 4 threads).
-- **Worker:** processo Python (`worker.py`) que, em loop de 5 s, (a) verifica o Google Drive a cada 1 hora e quando o usuário pede "Verificar agora", e (b) processa **uma** validação de perfil por vez, com intervalos aleatórios. Cada etapa é isolada: uma falha é registrada, a transação sofre rollback e o loop continua. O worker atualiza `/tmp/worker-heartbeat` a cada ciclo, usado pelo `healthcheck`.
+- **Worker:** processo Python (`worker.py`) que, em loop de 5 s, (a) verifica o Google Drive a cada 1 hora e quando o usuário pede "Verificar agora", e (b) processa **uma** validação de perfil por vez, sem espera artificial entre consultas. Cada etapa é isolada: uma falha é registrada, a transação sofre rollback e o loop continua. O worker atualiza `/tmp/worker-heartbeat` a cada ciclo, usado pelo `healthcheck`.
 - **Banco:** SQLite em WAL (`busy_timeout=30s`, chaves estrangeiras ligadas), compartilhado por web e worker através de um volume Docker.
 - **PWA:** service worker (rede primeiro para `/static/`, página offline), manifest com ícones PNG e Web Push.
 - **Proxy reverso HTTPS:** externo ao projeto.

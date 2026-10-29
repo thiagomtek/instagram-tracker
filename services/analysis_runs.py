@@ -20,6 +20,8 @@ def start_analysis_run(user_id, source, source_name):
 def complete_analysis_run(run, summary, cleanup_error=None):
     run.status = "success" if not cleanup_error else "cleanup_failed"
     run.completed_at = utc_now()
+    run.import_mode = summary.mode
+    run.result_note = summary.note or None
     run.files_read = summary.files_read
     run.followers_found = summary.followers_found
     run.following_found = summary.following_found
@@ -29,8 +31,8 @@ def complete_analysis_run(run, summary, cleanup_error=None):
     run.followers_reappeared = summary.followers_reappeared
     run.followers_followed_again = summary.followers_followed_again
     run.validation_total = summary.validation_total
-    # Validations that finished during the import (existence proven by the
-    # opposite list) count as done; the worker adds the others later.
+    # Every validation is asynchronous; the worker increments this field as
+    # each queued conclusion finishes.
     run.validation_completed = min(
         summary.validation_total, max(run.validation_completed or 0, summary.validation_completed)
     )

@@ -66,7 +66,12 @@ class GoogleDriveTest(unittest.TestCase):
     def test_follows_meta_export_structure_without_scanning_other_content(self):
         tree = {
             "meta": [folder("instagram", "instagram-tthiago-2026-10-23-code")],
-            "instagram": [folder("assets", "files"), folder("connections", "connections"), folder("media", "media")],
+            "instagram": [
+                folder("assets", "files"),
+                folder("connections", "connections"),
+                folder("media", "media"),
+                {"id": "manifest", "name": "start_here.html", "mimeType": "text/html"},
+            ],
             "connections": [folder("relationships", "followers_and_following")],
             "relationships": [
                 {"id": "followers", "name": "followers_1.html", "mimeType": "text/html"},
@@ -75,7 +80,7 @@ class GoogleDriveTest(unittest.TestCase):
         }
         service = FakeService(tree)
         files = _relationship_files(service, "meta", 100)
-        self.assertEqual({item["id"] for item in files}, {"followers", "following"})
+        self.assertEqual({item["id"] for item in files}, {"manifest", "followers", "following"})
         self.assertEqual(service.api.listed, ["meta", "instagram", "connections", "relationships"])
         self.assertNotIn("assets", service.api.listed)
         self.assertNotIn("media", service.api.listed)
@@ -108,6 +113,7 @@ class GoogleDriveTest(unittest.TestCase):
             {"name": "following.html", "modifiedTime": old},
         ]
         self.assertFalse(_has_complete_snapshot(incomplete))
+        self.assertTrue(_has_complete_snapshot([{"name": "start_here.html", "modifiedTime": old}]))
         self.assertTrue(_has_complete_snapshot(complete_recent))
         self.assertFalse(_is_settled(complete_recent, 300))
         self.assertTrue(_is_settled(complete_old, 300))

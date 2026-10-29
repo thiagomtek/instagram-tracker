@@ -83,6 +83,9 @@ ipython_config.py
 # --- Environments ---
 .env
 .envrc
+/LOCAL_DEPLOYMENT.md
+/vpn/
+/AGENTS.md
 .venv
 env/
 venv/

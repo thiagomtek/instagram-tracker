@@ -132,6 +132,10 @@ def _has_complete_snapshot(items):
     names = [item["name"].lower() for item in items]
     if any(name.endswith(".zip") for name in names):
         return True
+    # The manifest is enough to classify a bounded daily export. Such a batch
+    # may legitimately have no relationship files when no event occurred.
+    if any(name == "start_here.html" for name in names):
+        return True
     return any("followers" in name for name in names) and any("following" in name for name in names)
 
 
@@ -148,6 +152,7 @@ def _relationship_files(service, export_folder_id, item_limit):
     pending = [export_folder_id]
     visited = set()
     inspected = 0
+    manifests = []
     while pending:
         folder_id = pending.pop(0)
         if folder_id in visited:
@@ -158,13 +163,22 @@ def _relationship_files(service, export_folder_id, item_limit):
         if inspected > item_limit:
             raise ValueError("A exportação excede o limite de itens configurado.")
 
+        manifests.extend(
+            item for item in children
+            if item["mimeType"] != FOLDER_MIME_TYPE and item["name"].casefold() == "start_here.html"
+        )
         folders = [item for item in children if item["mimeType"] == FOLDER_MIME_TYPE]
         relationship_folder = next(
             (item for item in folders if item["name"].lower() == "followers_and_following"),
             None,
         )
         if relationship_folder:
-            return _candidate_files(_folder_files(service, relationship_folder["id"], item_limit))
+            relationship_files = _candidate_files(
+                _folder_files(service, relationship_folder["id"], item_limit)
+            )
+            # The manifest carries the requested date range. Without it, a
+            # bounded event export can be mistaken for a current snapshot.
+            return manifests + relationship_files
 
         # Meta currently creates meta-*/instagram-*/connections/followers_and_following.
         # Following the known branch prevents scans through photos and other exports.

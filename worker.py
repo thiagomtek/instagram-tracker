@@ -11,10 +11,15 @@ logging.basicConfig(
 from app import app
 from database import db
 from services.google_drive import sync_all_connections
-from services.profile_validation import process_next_validation, seconds_until_next_validation
+from services.network import refresh_network_status
+from services.profile_validation import (
+    restore_block_state,
+    enqueue_existing_profile_scans,
+    process_next_validation,
+)
 
 HEARTBEAT_FILE = Path("/tmp/worker-heartbeat")
-LOOP_SLEEP_SECONDS = 5
+LOOP_SLEEP_SECONDS = 1
 
 running = True
 
@@ -48,7 +53,7 @@ def beat():
 if __name__ == "__main__":
     drive_interval = app.config["GOOGLE_DRIVE_POLL_SECONDS"]
     next_drive_check = 0
-    next_profile_check = 0
+    bootstrap_scans_pending = True
     app.logger.info("Worker iniciado: Google Drive a cada 1 hora e validações assíncronas serializadas")
     while running:
         beat()
@@ -59,12 +64,13 @@ if __name__ == "__main__":
                 next_drive_check = time.monotonic() + drive_interval
             else:
                 guarded("google-drive-solicitado", lambda: sync_all_connections(only_requested=True))
-            if now >= next_profile_check:
-                if app.config["PROFILE_VALIDATION_ENABLED"]:
-                    processed = guarded("validacao-de-perfil", process_next_validation)
-                    next_profile_check = time.monotonic() + (seconds_until_next_validation() if processed else 60)
-                else:
-                    next_profile_check = time.monotonic() + 300
+            if bootstrap_scans_pending:
+                guarded("restaurar-pausa-por-bloqueio", restore_block_state)
+                guarded("varredura-de-perfis-existentes", enqueue_existing_profile_scans)
+                bootstrap_scans_pending = False
+            guarded("status-da-rede", refresh_network_status)
+            processed = guarded("validacao-de-perfil", process_next_validation)
             db.session.remove()
         beat()
-        time.sleep(LOOP_SLEEP_SECONDS)
+        if not processed:
+            time.sleep(LOOP_SLEEP_SECONDS)

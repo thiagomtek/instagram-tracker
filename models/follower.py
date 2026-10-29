@@ -7,7 +7,7 @@ class Follower(db.Model):
 
     ``state`` is the lifecycle of the relationship:
     present -> pending (missing from one export) -> absent (profile unavailable,
-    one retest scheduled) -> removed (confirmed) | untestable (still unavailable).
+    one retest scheduled or still unavailable) -> removed (confirmed existence).
     A profile in any state returns to ``present`` when it shows up in an export.
     """
 
@@ -28,3 +28,7 @@ class Follower(db.Model):
     last_validation_result = db.Column(db.String(64), nullable=True)
     last_validated_at = db.Column(db.DateTime, nullable=True)
     retest_count = db.Column(db.Integer, nullable=False, default=0)
+    avatar_data = db.Column(db.LargeBinary, nullable=True)
+    avatar_mime = db.Column(db.String(64), nullable=True)
+    profile_status = db.Column(db.String(32), nullable=False, default="unknown")
+    profile_checked_at = db.Column(db.DateTime, nullable=True)

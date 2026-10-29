@@ -17,6 +17,10 @@ DATE_PATTERN = re.compile(r"([a-zç]{3})\.?\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(
 
 # Filename fragments checked in order; "followers" must come before "following".
 KIND_BY_FILENAME = (
+    ("follow_requests_you've_received", "pending_received"),
+    ("recent_follow_requests", "recent_requests"),
+    ("recently_unfollowed_profiles", "recently_unfollowed"),
+    ("restricted_profiles", "restricted"),
     ("followers", "followers"),
     ("following", "following"),
     ("pending", "pending_sent"),
@@ -50,9 +54,12 @@ def detect_kind(file_path, filename):
 
 
 def _username_from_href(href):
-    if not href or "instagram.com" not in href:
+    if not href:
         return None
-    path = urlparse(href).path.strip("/")
+    parsed = urlparse(href)
+    if parsed.hostname not in {"instagram.com", "www.instagram.com"}:
+        return None
+    path = parsed.path.strip("/")
     if path.startswith("_u/"):
         path = path[3:]
     username = path.split("/")[0].strip()

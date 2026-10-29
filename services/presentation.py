@@ -35,10 +35,11 @@ def format_validation_attempt_time(dt):
 
 
 def format_validation_item(item, max_attempts=3):
-    kind_label = "Seguidor" if item.kind == "followers" else "Seguindo"
+    kind_label = "Perfil" if item.purpose == "profile_scan" else ("Seguidor" if item.kind == "followers" else "Seguindo")
     status = item.status
     outcome = item.outcome
     attempts = item.attempts or 0
+    attempt_limit = 2 if item.purpose == "profile_scan" else max_attempts
     next_time = format_validation_attempt_time(item.next_attempt_at) if item.next_attempt_at else ""
 
     badge_class = "badge-queued"
@@ -48,21 +49,34 @@ def format_validation_item(item, max_attempts=3):
     if status == "running":
         badge_class = "badge-running"
         status_label = "Averiguando agora"
-        sub_label = f"Tentativa {attempts} de {max_attempts}"
+        sub_label = f"Tentativa {attempts} de {attempt_limit}"
     elif status == "retry":
         badge_class = "badge-retry"
         if outcome in ("unavailable_pending_retest", "inconclusive_pending_retest"):
             status_label = "Reaveriguação agendada"
             sub_label = f"Reteste 1/1 previsto às {next_time}" if next_time else "Reteste 1/1 agendado"
+        elif outcome == "blocked":
+            status_label = "Instagram bloqueou a consulta"
+            sub_label = f"Nova tentativa prevista às {next_time}" if next_time else "Nova tentativa agendada"
         else:
             status_label = "Nova tentativa agendada"
-            upcoming = min(attempts + 1, max_attempts)
-            sub_label = f"Tentativa {upcoming} de {max_attempts}" + (f" prevista às {next_time}" if next_time else "")
+            upcoming = min(attempts + 1, attempt_limit)
+            sub_label = f"Tentativa {upcoming} de {attempt_limit}" + (f" prevista às {next_time}" if next_time else "")
     elif status == "queued":
-        sub_label = f"Prevista às {next_time}" if next_time else "Aguardando o worker"
+        prefix = "Existência e foto" if item.purpose == "profile_scan" else "Averiguação"
+        sub_label = f"{prefix} prevista às {next_time}" if next_time else f"{prefix} aguardando o worker"
     elif status == "completed":
         badge_class = "badge-completed"
-        if outcome == "relationship_removed":
+        if outcome == "profile_exists":
+            status_label = "Perfil encontrado"
+            sub_label = "Foto armazenada quando disponibilizada pelo Instagram"
+        elif outcome == "profile_unavailable":
+            status_label = "Perfil indisponível"
+            sub_label = "Conta não acessível publicamente"
+        elif outcome == "profile_inconclusive":
+            status_label = "Consulta inconclusiva"
+            sub_label = "Não foi possível confirmar o perfil"
+        elif outcome == "relationship_removed":
             status_label = "Remoção confirmada"
             sub_label = "Não segue mais você" if item.kind == "followers" else "Você não segue mais"
         elif outcome == "untestable":
@@ -83,6 +97,7 @@ def format_validation_item(item, max_attempts=3):
         "id": item.id,
         "username": item.username,
         "kind": item.kind,
+        "purpose": item.purpose,
         "kind_label": kind_label,
         "status": status,
         "status_label": status_label,
@@ -126,15 +141,16 @@ def build_validation_progress(user_id):
     far_future = utc_now().replace(year=9999)
     items = sorted(
         validations,
-        key=lambda item: (item.status not in ACTIVE_STATUSES, item.next_attempt_at or far_future, item.id),
+        key=lambda item: (
+            0 if item.status == "running" else (1 if item.status in ACTIVE_STATUSES else 2),
+            item.next_attempt_at or far_future if item.status in ACTIVE_STATUSES else -(item.completed_at.timestamp() if item.completed_at else 0),
+            item.id,
+        ),
     )[:20]
 
     active_items = [item for item in validations if item.status in ACTIVE_STATUSES]
-    next_active = min(
-        (item for item in active_items if item.next_attempt_at),
-        key=lambda item: item.next_attempt_at,
-        default=None,
-    )
+    queued_items = [item for item in active_items if item.status in {"queued", "retry"} and item.next_attempt_at]
+    next_active = min(queued_items, key=lambda item: item.next_attempt_at, default=None)
 
     max_attempts = current_app.config["PROFILE_VALIDATION_MAX_ATTEMPTS"]
     formatted_items = [format_validation_item(item, max_attempts) for item in items]

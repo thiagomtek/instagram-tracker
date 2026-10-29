@@ -24,9 +24,15 @@ FOLLOWER_COLUMNS = (
     ("last_validation_result", "VARCHAR(64)"),
     ("last_validated_at", "DATETIME"),
     ("retest_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("avatar_data", "BLOB"),
+    ("avatar_mime", "VARCHAR(64)"),
+    ("profile_status", "VARCHAR(32) NOT NULL DEFAULT 'unknown'"),
+    ("profile_checked_at", "DATETIME"),
 )
 HISTORY_COLUMNS = (("user_id", "INTEGER"),)
 RUN_COLUMNS = (
+    ("import_mode", "VARCHAR(32) NOT NULL DEFAULT 'snapshot'"),
+    ("result_note", "TEXT"),
     ("followers_reappeared", "INTEGER NOT NULL DEFAULT 0"),
     ("followers_followed_again", "INTEGER NOT NULL DEFAULT 0"),
     ("reappeared_usernames", "TEXT"),
@@ -37,6 +43,12 @@ RUN_COLUMNS = (
 )
 USER_COLUMNS = (("session_epoch", "INTEGER NOT NULL DEFAULT 0"),)
 DRIVE_COLUMNS = (("sync_requested", "BOOLEAN NOT NULL DEFAULT 0"),)
+OBSERVATION_COLUMNS = (("source_fingerprint", "VARCHAR(64)"),)
+NETWORK_COLUMNS = (("vpn_avoid_until", "DATETIME"),)
+VALIDATION_COLUMNS = (
+    ("evidence", "VARCHAR(32) NOT NULL DEFAULT 'web'"),
+    ("purpose", "VARCHAR(32) NOT NULL DEFAULT 'relationship'"),
+)
 
 DUPLICATE_FOLLOWER = (
     "EXISTS (SELECT 1 FROM follower g WHERE g.user_id IS f.user_id AND g.kind = f.kind "
@@ -104,11 +116,17 @@ def run_schema_upgrades():
     _add_missing_columns("analysis_run", RUN_COLUMNS)
     _add_missing_columns("user", USER_COLUMNS)
     _add_missing_columns("drive_connection", DRIVE_COLUMNS)
+    _add_missing_columns("import_observation", OBSERVATION_COLUMNS)
+    _add_missing_columns("relationship_validation", VALIDATION_COLUMNS)
+    _add_missing_columns("network_status", NETWORK_COLUMNS)
 
     db.session.execute(db.text("UPDATE follower SET is_present = 1 WHERE is_present IS NULL"))
     db.session.execute(db.text("UPDATE follower SET state = 'present' WHERE state IS NULL"))
     db.session.execute(db.text("UPDATE follower SET missing_count = 0 WHERE missing_count IS NULL"))
     db.session.execute(db.text("UPDATE follower SET validation_status = 'idle' WHERE validation_status IS NULL"))
+    db.session.execute(db.text("UPDATE follower SET profile_status = 'unknown' WHERE profile_status IS NULL"))
+    db.session.execute(db.text("UPDATE relationship_validation SET evidence = 'web' WHERE evidence IS NULL"))
+    db.session.execute(db.text("UPDATE relationship_validation SET purpose = 'relationship' WHERE purpose IS NULL"))
     db.session.commit()
 
     _run_once("legacy_lost_to_missing", _legacy_lost_to_missing, skip=not is_legacy_database)

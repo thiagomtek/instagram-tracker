@@ -62,6 +62,9 @@ def send_profile_validation_notification(user_id, validations):
         outcomes[validation.outcome] = outcomes.get(validation.outcome, 0) + 1
 
     labels = (
+        ("profile_exists", "{} perfil(is) encontrado(s) e foto(s) atualizada(s) quando disponível"),
+        ("profile_unavailable", "{} perfil(is) indisponível(is)"),
+        ("profile_inconclusive", "{} perfil(is) com consulta inconclusiva"),
         ("relationship_removed", "{} relação(ões) removida(s) confirmada(s)"),
         ("untestable", "{} perfil(is) indisponível(is) após reteste"),
         ("exists_waiting_confirmation", "{} aguardando nova exportação"),

@@ -36,7 +36,7 @@
             <div><span class="summary-label">Conta vinculada</span><strong>{{ drive_connection.google_email or 'Conta Google' }}</strong></div>
             <a href="{{ url_for('google_drive_connect') }}" class="text-link">Trocar</a>
         </div>
-        <p class="section-copy mb-0">O Tracker procura automaticamente novas exportações do Instagram a cada 1 hora.</p>
+        <p class="section-copy mb-0">O Tracker procura novas exportações a cada 1 hora. Entregas diárias são mescladas como eventos do período e nunca apagam quem não apareceu naquele dia.</p>
         <div class="inline-notice warning mt-3">Depois que o resultado é salvo, a pasta processada é {{ removal_text }}.</div>
 
         <div class="sync-status mt-3">
@@ -66,7 +66,7 @@
             <div class="section-icon" aria-hidden="true">⇧</div>
             <div><span class="eyebrow">Sempre disponível</span><h2>Importação manual</h2></div>
         </div>
-        <p class="section-copy">Envie o ZIP completo ou <strong>todos</strong> os HTML/JSON da exportação atual (inclusive <code>followers_1</code>, <code>followers_2</code>…). A nova lista substitui o retrato anterior e os arquivos são apagados após a análise.</p>
+        <p class="section-copy">Para criar ou renovar a base completa, peça <strong>Seguidores e seguindo · Desde o início</strong> e envie o ZIP inteiro (inclusive <code>followers_1</code>, <code>followers_2</code>…). O retrato completo substitui a base anterior; exportações com intervalo curto são mescladas sem concluir ausências.</p>
         <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="upload-zone" id="dropZone" for="fileInput">
@@ -104,7 +104,7 @@
         <div class="privacy-mark" aria-hidden="true">✓</div>
         <div>
             <h2>Seus dados ficam no seu servidor</h2>
-            <p>O Tracker guarda somente os resultados da análise; exportações e pastas temporárias nunca ficam armazenadas. Para confirmar remoções, o worker pode consultar perfis públicos no Instagram, um por vez.</p>
+            <p>O Tracker varre os perfis da base e guarda o resultado e, quando disponível, a foto pública. Exportações e pastas temporárias são removidas. As consultas ao Instagram acontecem uma por vez.</p>
         </div>
         <form action="{{ url_for('reset_db') }}" method="POST" data-confirm="Remover todo o histórico analisado da sua conta? Isso não pode ser desfeito.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

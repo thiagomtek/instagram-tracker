@@ -97,7 +97,7 @@ class AppTest(unittest.TestCase):
 
         self.assertEqual(app.config["GOOGLE_DRIVE_POLL_SECONDS"], 3600)
         self.assertIn("Automação a cada 1 hora".encode(), response.data)
-        self.assertIn("automaticamente novas exportações".encode(), response.data)
+        self.assertIn("procura novas exportações a cada 1 hora".encode(), response.data)
         self.assertNotIn("Local das exportações do Instagram".encode(), response.data)
         self.assertNotIn("Pasta atual".encode(), response.data)
 
@@ -135,10 +135,30 @@ class AppTest(unittest.TestCase):
 
         response = self.client.get("/dashboard")
 
-        self.assertIn("Situação atual".encode(), response.data)
-        self.assertIn("As listas separam perfis presentes e ausentes na exportação atual".encode(), response.data)
+        self.assertIn("Situação conhecida".encode(), response.data)
+        self.assertIn("A base completa e as atualizações diárias têm funções diferentes".encode(), response.data)
         self.assertIn("Você segue, mas não seguem você".encode(), response.data)
         self.assertIn(b"bia", response.data)
+
+    def test_profile_avatar_is_private_and_rendered_in_relationship_lists(self):
+        follower = Follower(
+            user_id=self.user_id,
+            username="ana",
+            kind="followers",
+            avatar_data=b"image-bytes",
+            avatar_mime="image/jpeg",
+        )
+        db.session.add(follower)
+        db.session.commit()
+        self.login()
+
+        dashboard = self.client.get("/dashboard")
+        image = self.client.get(f"/profile-avatar/{follower.id}")
+
+        self.assertIn(f"/profile-avatar/{follower.id}".encode(), dashboard.data)
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image.data, b"image-bytes")
+        self.assertEqual(image.mimetype, "image/jpeg")
 
     def test_dashboard_renders_with_validation_progress(self):
         follower = Follower(user_id=self.user_id, username="pedro", kind="followers", is_present=False, state="pending", missing_count=1)
@@ -407,6 +427,12 @@ class AppTest(unittest.TestCase):
         connection = DriveConnection(user_id=self.user_id, encrypted_refresh_token="x")
         db.session.add(connection)
         db.session.commit()
+        db.session.add(PushSubscription(
+            user_id=self.user_id,
+            endpoint="https://push.example/subscription",
+            p256dh="key",
+            auth="auth",
+        ))
         db.session.add(DriveImport(connection_id=connection.id, source_id="s", source_version="v", source_name="n", analysis_run_id=run.id))
         db.session.commit()
         self.login()
@@ -416,9 +442,12 @@ class AppTest(unittest.TestCase):
         self.assertIn("Histórico e listas apagados".encode(), response.data)
         for model in (Follower, History, AnalysisRun, RelationshipValidation, ImportObservation):
             self.assertEqual(model.query.count(), 0, model.__name__)
-        # The Drive link and its import ledger are kept.
+        # Accounts, Drive credentials and notification subscriptions survive;
+        # everything produced by an import, including the Drive ledger, is reset.
+        self.assertEqual(User.query.count(), 1)
         self.assertEqual(DriveConnection.query.count(), 1)
-        self.assertIsNone(DriveImport.query.first().analysis_run_id)
+        self.assertEqual(PushSubscription.query.count(), 1)
+        self.assertEqual(DriveImport.query.count(), 0)
 
     # ----- time zones
 
@@ -553,17 +582,27 @@ class AppTest(unittest.TestCase):
     # ----- dashboard behavior
 
     def test_unavailable_profiles_stay_visible_after_failed_retest(self):
-        db.session.add(Follower(
-            user_id=self.user_id, username="conta_sumida", kind="followers", is_present=False,
-            state="untestable", missing_since=datetime.now(),
-        ))
+        db.session.add_all([
+            Follower(
+                user_id=self.user_id, username="conta_sumida", kind="followers", is_present=False,
+                state="untestable", missing_since=datetime.now(),
+            ),
+            Follower(
+                user_id=self.user_id, username="conta_sumida", kind="following", is_present=True,
+                state="present", date_added=datetime.now(),
+            ),
+        ])
         db.session.commit()
         self.login()
 
         page = self.client.get("/dashboard").data.decode()
+        snapshot = app_module._relationship_snapshot(self.user_id)
 
         self.assertIn("Perfis indisponíveis", page)
         self.assertIn("conta_sumida", page)
+        self.assertEqual(snapshot["not_following_back"], [])
+        self.assertEqual(snapshot["fans"], [])
+        self.assertEqual(snapshot["mutuals"], [])
 
     def test_clearing_the_start_date_removes_the_period_limit(self):
         db.session.add(History(
